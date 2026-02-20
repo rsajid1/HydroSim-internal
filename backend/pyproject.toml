@@ -1,0 +1,28 @@
+[project]
+name = "hydrosim-backend"
+version = "0.1.0"
+description = "HydroSim - Interactive Hydroponics & Greenhouse Simulator Backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",  # Includes httptools for better HTTP parsing performance
+    "pydantic>=2.12.0",
+    "pydantic-settings>=2.11.0",
+    "python-dotenv>=1.2.0",
+]
+# Note: uvloop provides better event loop performance but cannot be installed on Windows
+# For production on Linux/macOS, you can add: "uvloop>=0.19.0; sys_platform != 'win32'"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.24.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+
