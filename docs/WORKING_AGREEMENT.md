@@ -26,7 +26,7 @@ HydroSim – Interactive Hydroponics & Greenhouse Simulator
 
 ## Meetings
 
-- Weekly meetings are held on **Fridays** via **Microsoft Teams**.
+- Weekly meetings are held on **Fridays** at 2L30 PM via **Microsoft Teams** or in person.
 - Meeting time is determined based on team member availability each week.
 - Attend scheduled meetings whenever possible.
 - If unable to attend, notify the group ahead of time.
