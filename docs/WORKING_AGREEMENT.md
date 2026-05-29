@@ -18,7 +18,7 @@ HydroSim – Interactive Hydroponics & Greenhouse Simulator
 
 ## Communication
 
-- Main communication platform: Discord / WhatsApp / Teams
+- Main communication platform: Whatsapp group chat. Meetings will be scheduled via Microsoft Teams or in person.
 - Important decisions should be written in the group chat or GitHub.
 - Team members should try to respond within 24 hours.
 
@@ -27,7 +27,7 @@ HydroSim – Interactive Hydroponics & Greenhouse Simulator
 ## Meetings
 
 - Weekly meetings are held on **Fridays** at 2:30 PM via **Microsoft Teams** or in person.
-- Meeting time is determined based on team member availability each week.
+- The Friday meeting time should remain fixed unless the team agrees to a change in advance.
 - Attend scheduled meetings whenever possible.
 - If unable to attend, notify the group ahead of time.
 - Meetings should stay focused and productive.
@@ -47,6 +47,19 @@ Example commit messages:
 - `Added greenhouse temperature controls`
 - `Fixed planter UI bug`
 - `Updated crop growth simulation`
+
+---
+
+## Coding Style
+
+- Follow the existing project style and use common JavaScript, React, and Python conventions.
+- Use `camelCase` for JavaScript variables and functions.
+- Use `PascalCase` for React components.
+- Use `snake_case` for Python variables and functions.
+- Use clear and descriptive names instead of short or unclear abbreviations.
+- Keep functions focused and avoid large, hard-to-follow blocks of code.
+- Format code consistently before submitting a pull request.
+- Add comments only when they clarify non-obvious logic or important design decisions.
 
 ---
 
