@@ -273,11 +273,13 @@ export default function DashboardPage() {
 
   // Garden planter UI state
   const [activeShelf, setActiveShelf] = useState<number>(0);
-  const [shelfPlants, setShelfPlants] = useState<Record<number, ('empty' | 'planted')[]>>({
+  const [shelfPlants, setShelfPlants] = useState<Record<number, ('empty' | 'lettuce' | 'tomato')[]>>({
     0: Array(9).fill('empty'),
     1: Array(9).fill('empty'),
     2: Array(9).fill('empty'),
   });
+  const [openDropdown, setOpenDropdown] = useState<{ shelf: number; idx: number } | null>(null);
+  const [cropConfirmation, setCropConfirmation] = useState<string | null>(null);
 
   const shelves = [
     { id: 0, name: 'Top Shelf', crops: '' },
@@ -368,16 +370,28 @@ export default function DashboardPage() {
     return "Harvest Ready";
   };
 
-  const togglePlant = (shelfId: number, slotIndex: number) => {
+  const handlePlanterClick = (shelfId: number, idx: number) => {
+    if (openDropdown?.shelf === shelfId && openDropdown?.idx === idx) {
+      setOpenDropdown(null);
+    } else {
+      setOpenDropdown({ shelf: shelfId, idx });
+    }
+  };
+
+  const assignCrop = (crop: 'lettuce' | 'tomato', shelfId: number, idx: number) => {
     setShelfPlants(prev => {
       const updated = [...prev[shelfId]];
-      updated[slotIndex] = updated[slotIndex] === 'planted' ? 'empty' : 'planted';
+      updated[idx] = crop;
       return { ...prev, [shelfId]: updated };
     });
+    setOpenDropdown(null);
+    const planterId = `crop${idx + 1}`;
+    setCropConfirmation(`${planterId} added to simulation`);
+    setTimeout(() => setCropConfirmation(null), 3000);
   };
 
   const shelfOccupancy = (shelfId: number) =>
-    shelfPlants[shelfId].filter(slot => slot === 'planted').length;
+    shelfPlants[shelfId].filter(slot => slot !== 'empty').length;
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden selection:bg-blue-500/30">
@@ -662,28 +676,70 @@ export default function DashboardPage() {
                     <div className="text-xs uppercase text-slate-400">Shelf Detail</div>
                     <div className="text-sm font-semibold text-white">{shelves[activeShelf].name}</div>
                   </div>
-                  <div className="text-[11px] font-mono text-slate-400">Click circles to toggle planted</div>
+                  <div className="text-[11px] font-mono text-slate-400">Click a planter to assign a crop</div>
                 </div>
 
                 <div className="rounded-xl border border-slate-200/60 bg-[#f6f7ee] p-4 shadow-inner">
                   <div className="grid grid-cols-3 gap-4">
-                    {shelfPlants[activeShelf].map((slot, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => togglePlant(activeShelf, idx)}
-                        className="relative aspect-square rounded-full transition-transform duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
-                        aria-label={`Shelf ${activeShelf + 1}, Plant ${idx + 1}, ${slot === 'planted' ? 'planted' : 'empty'}`}
-                        style={{
-                          backgroundColor: slot === 'planted' ? '#5b3a2c' : '#5b3a2c',
-                          boxShadow: slot === 'planted' ? '0 0 0 6px #d16a55, inset 0 0 0 2px rgba(0,0,0,0.05)' : '0 0 0 3px #d16a55',
-                          opacity: slot === 'planted' ? 1 : 0.65,
-                        }}
-                      >
-                        <span className="sr-only">{slot === 'planted' ? 'Planted' : 'Empty'}</span>
-                      </button>
-                    ))}
+                    {shelfPlants[activeShelf].map((slot, idx) => {
+                      const planterId = `crop${idx + 1}`;
+                      const isOpen = openDropdown?.shelf === activeShelf && openDropdown?.idx === idx;
+                      return (
+                        <div key={planterId} id={planterId} className="relative flex flex-col items-center gap-1">
+                          <button
+                            onClick={() => handlePlanterClick(activeShelf, idx)}
+                            className="relative aspect-square w-full rounded-full transition-transform duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 flex items-center justify-center"
+                            aria-label={`${planterId}, ${slot === 'empty' ? 'empty' : slot}`}
+                            style={{
+                              backgroundColor: '#5b3a2c',
+                              boxShadow: slot !== 'empty'
+                                ? '0 0 0 6px #d16a55, inset 0 0 0 2px rgba(0,0,0,0.05)'
+                                : isOpen
+                                ? '0 0 0 5px #60a5fa'
+                                : '0 0 0 3px #d16a55',
+                              opacity: slot !== 'empty' ? 1 : 0.65,
+                            }}
+                          >
+                            {slot !== 'empty' && (
+                              <img
+                                src={`/${slot}.svg`}
+                                alt={slot}
+                                className="w-3/5 h-3/5 object-contain pointer-events-none"
+                              />
+                            )}
+                          </button>
+                          {isOpen && (
+                            <div
+                              id="cropSelect"
+                              className="absolute top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden text-xs w-28"
+                            >
+                              <button
+                                onClick={() => assignCrop('lettuce', activeShelf, idx)}
+                                className="flex items-center gap-2 w-full px-3 py-2 hover:bg-green-50 text-slate-700"
+                              >
+                                <img src="/lettuce.svg" alt="lettuce" className="w-4 h-4" />
+                                Lettuce
+                              </button>
+                              <button
+                                onClick={() => assignCrop('tomato', activeShelf, idx)}
+                                className="flex items-center gap-2 w-full px-3 py-2 hover:bg-red-50 text-slate-700"
+                              >
+                                <img src="/tomato.svg" alt="tomato" className="w-4 h-4" />
+                                Tomato
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
+
+                {cropConfirmation && (
+                  <div className="mt-2 text-center text-xs font-medium text-emerald-400 bg-emerald-950/50 border border-emerald-800 rounded-lg py-2 px-3">
+                    {cropConfirmation}
+                  </div>
+                )}
               </div>
             </div>
 
