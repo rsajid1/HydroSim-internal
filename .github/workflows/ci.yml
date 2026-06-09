@@ -1,0 +1,93 @@
+name: HydroSim CI Pipeline
+
+# Triggers:
+#   pull_request  -> runs for PRs created from ANY branch (a branches filter would only
+#                    constrain the PR's base/target branch, never the source). Each new push
+#                    to an open PR re-runs CI automatically via the `synchronize` activity.
+#   push          -> scoped to main so merges into the protected branch are validated directly.
+#                    Feature-branch pushes don't need a separate run here — their open PR covers them.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+
+  # ──────────────────────────────────────────
+  # JOB 1: Frontend — Next.js + TypeScript
+  # ──────────────────────────────────────────
+  frontend:
+    name: Frontend — Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run unit tests (Vitest)
+        run: npm test
+
+  # ──────────────────────────────────────────
+  # JOB 2: Backend — FastAPI + Python 3.11
+  # ──────────────────────────────────────────
+  backend:
+    name: Backend — Lint & Test
+    runs-on: ubuntu-latest
+
+    # Stub environment variables so the app can load
+    # without real AWS Cognito or PostgreSQL credentials.
+    env:
+      DEBUG: "true"
+      COGNITO_REGION: "us-east-1"
+      COGNITO_USER_POOL_ID: "us-east-1_TESTPOOL"
+      COGNITO_CLIENT_ID: "test-client-id"
+      COGNITO_CLIENT_SECRET: "test-client-secret"
+      DB_HOST: "localhost"
+      DB_USER: "postgres"
+      DB_PASSWORD: "postgres"
+      DB_NAME: "hydrosim_test"
+      DB_PORT: "5432"
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install project dependencies
+        run: uv pip install -r requirements.txt --system
+
+      - name: Install test and lint tools
+        run: uv pip install pytest pytest-asyncio httpx pylint --system
+
+      - name: Run Pylint
+        run: pylint app/ config/ --fail-under=7.0
+
+      - name: Run pytest
+        run: pytest --tb=short -q
+
+      - name: Verify app loads correctly
+        run: python -c "from app.index import app; print('FastAPI app loaded successfully')"

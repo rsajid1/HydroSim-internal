@@ -16,6 +16,10 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Next.js frontend source: re-include the JS lib/ dir excluded by the Python "lib/" rule above
+# (Python venv libs live under backend/.venv and are ignored by backend/.gitignore)
+!lib/
+!lib/**
 parts/
 sdist/
 var/
@@ -67,6 +71,9 @@ instance/
 
 # Scrapy stuff:
 .scrapy
+
+# claude ignore
+CLAUDE.md
 
 # Sphinx documentation
 docs/_build/

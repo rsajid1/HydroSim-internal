@@ -20,6 +20,34 @@ dev = [
     "httpx>=0.24.0",
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.pylint.main]
+# Tests are not part of the production lint gate.
+ignore = ["tests"]
+
+[tool.pylint.format]
+max-line-length = 120
+
+[tool.pylint.messages_control]
+# Disable pure style/convention noise so the gate focuses on real issues
+# (unused imports, reimports, broad excepts, missing-from, etc. stay enabled).
+disable = [
+    "missing-module-docstring",
+    "missing-class-docstring",
+    "missing-function-docstring",
+    "bad-indentation",
+    "trailing-whitespace",
+    "trailing-newlines",
+    "missing-final-newline",
+    "too-few-public-methods",
+    "duplicate-code",
+    "wrong-import-order",
+    "ungrouped-imports",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
