@@ -3,7 +3,8 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 
 # Pydantic for data validation
-pydantic>=2.12.0
+# [email] pulls in email-validator, required by EmailStr fields in app/routers/auth.py
+pydantic[email]>=2.12.0
 pydantic-settings>=2.11.0
 
 # Environment variables
