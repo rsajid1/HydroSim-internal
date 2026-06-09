@@ -2,11 +2,13 @@ import boto3
 from fastapi import APIRouter
 from fastapi import HTTPException, status, Depends
 from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from botocore.exceptions import ClientError
 from config.config import settings
 import hmac
 import hashlib
 import base64
+from fastapi import APIRouter, HTTPException
 
 # Check cognito settings
 if not settings.cognito_region or not settings.cognito_user_pool_id or not settings.cognito_client_id:
@@ -37,6 +39,17 @@ class LoginModel(BaseModel):
     password: str
 
 
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ConfirmForgotPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
+
+
+
 cognito_client = boto3.client('cognito-idp', region_name=settings.cognito_region)
 
 
@@ -54,6 +67,10 @@ async def signup(user: SignupModel):
                 {'Name': 'email', 'Value': user.email}
             ]
         )
+        
+        #Debug full response
+        print("Cognito response:", response)
+        
         return {"message": "User signed up successfully"}
     except ClientError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.response['Error']['Message'])
@@ -73,6 +90,10 @@ async def login(user: LoginModel):
                 'SECRET_HASH': secret_hash
             }
         )
+        
+        #Debug full response
+        print("Cognito response:", response)
+        
         return {
             "access_token": response['AuthenticationResult']['AccessToken'],
             "id_token": response['AuthenticationResult']['IdToken'],
@@ -82,3 +103,31 @@ async def login(user: LoginModel):
         }
     except ClientError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=e.response['Error']['Message'])
+    
+
+@router.post("/forgot-password")
+async def forgot_password(request: ForgotPasswordRequest):
+    try:
+        cognito_client.forgot_password(
+            ClientId=settings.cognito_client_id,
+            SecretHash=get_secret_hash(request.email, settings.cognito_client_id, settings.cognito_client_secret),
+            Username=request.email
+        )
+        return {"message": "Reset code sent to your email"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/confirm-forgot-password")
+async def confirm_forgot_password(request: ConfirmForgotPasswordRequest):
+    try:
+        cognito_client.confirm_forgot_password(
+            ClientId=settings.cognito_client_id,
+            SecretHash=get_secret_hash(request.email, settings.cognito_client_id, settings.cognito_client_secret),
+            Username=request.email,
+            ConfirmationCode=request.code,
+            Password=request.new_password
+        )
+        return {"message": "Password reset successful. Please login."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+

@@ -15,7 +15,7 @@ export default function LoginPage() {
     const [error, setError] = useState("")
     const [loading, setLoading] = useState(false)
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setError("")
         setLoading(true)
@@ -42,7 +42,7 @@ export default function LoginPage() {
 
             // Redirect to dashboard
             router.push("/dashboard")
-        } catch (err) {
+        } catch (err: any) {
             setError(err.message || "An error occurred during login")
         } finally {
             setLoading(false)
@@ -97,12 +97,12 @@ export default function LoginPage() {
                             <div className="grid gap-2">
                                 <div className="flex items-center">
                                     <Label htmlFor="password">Password</Label>
-                                    <a
-                                        href="#"
+                                    <Link
+                                        href="/auth/forgot-password"
                                         className="ml-auto inline-block text-sm underline-offset-4 hover:underline"
                                     >
                                         Forgot your password?
-                                    </a>
+                                    </Link>
                                 </div>
                                 <Input
                                     id="password"
