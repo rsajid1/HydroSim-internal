@@ -9,13 +9,22 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
+# Fixed random seed so the generated CSV is identical every time the script runs.
 SEED = 20260608
+
+# Number of sample records created for each crop/stage/system/scenario combination.
 ROWS_PER_STAGE_SYSTEM_SCENARIO = 5
+
+# CSV destination, resolved from the project root instead of the current terminal path.
 OUTPUT_PATH = Path(__file__).resolve().parents[1] / "data" / "synthetic_hydroponics_dataset.csv"
 
+# Hydroponic system categories included in the generated records.
 SYSTEM_TYPES = ["nft", "dwc", "aeroponics", "vertical"]
+
+# Scenario labels used to control how far generated values drift from crop targets.
 SCENARIOS = ["stable", "warning", "critical"]
 
+# Column order for the output CSV.
 FIELDNAMES = [
     "simulation_id",
     "crop_type",
@@ -38,6 +47,7 @@ FIELDNAMES = [
     "created_at",
 ]
 
+# Crop-specific target conditions and growth-stage day ranges.
 CROP_PROFILES = {
     "lettuce": {
         "source_profile": "osu_hydroponics_lettuce_profile",
@@ -79,6 +89,8 @@ CROP_PROFILES = {
     },
 }
 
+# Maximum random deviation from target values for each scenario.
+# Stable stays close to target, warning moves farther away, critical moves farthest.
 NOISE_BY_SCENARIO = {
     "stable": {
         "ph": 0.15,
@@ -112,6 +124,7 @@ NOISE_BY_SCENARIO = {
     },
 }
 
+# Hard bounds that keep generated environmental values within plausible ranges.
 LIMITS = {
     "ph": (4.0, 8.0),
     "ec": (0.5, 4.0),
@@ -123,6 +136,8 @@ LIMITS = {
     "light_hours": (8.0, 20.0),
 }
 
+# Relative impact of each field on the synthetic stress score.
+# Higher weights make deviations in that field count more.
 STRESS_WEIGHTS = {
     "ph": 18.0,
     "ec": 16.0,
@@ -134,6 +149,8 @@ STRESS_WEIGHTS = {
     "light_hours": 10.0,
 }
 
+# Difference from target that counts as a full stress contribution for each field.
+# Example: 1.0 pH away from target reaches the full pH stress weight.
 TOLERANCES = {
     "ph": 1.0,
     "ec": 1.0,
