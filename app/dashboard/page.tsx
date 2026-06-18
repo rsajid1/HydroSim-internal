@@ -73,6 +73,15 @@ interface Alert {
   msg: string;
 }
 
+interface Prediction {
+  harvestQuality: number;
+  stressFactor: number;
+  timeToHarvest: number;
+  riskLevel: string;
+  explanation: string;
+  source: string;
+}
+
 // --- Constants ---
 
 const SYSTEMS: System[] = [
@@ -88,6 +97,16 @@ const CROPS: Crop[] = [
   { id: 'tomatoes', name: 'Tomatoes', optimal: { ph: 6.0, ec: 2.5, temp: 26, humidity: 70 } },
   { id: 'cucumbers', name: 'Cucumbers', optimal: { ph: 5.8, ec: 2.0, temp: 25, humidity: 75 } },
 ];
+
+// Backend base URL (reused from the DB panel's fetch pattern).
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8001";
+
+// Debounce for the live prediction fetch — coalesces rapid slider drags into one request.
+const PREDICT_DEBOUNCE_MS = 300;
+
+// UI crop ids that have rows in the local synthetic dataset. Others fall back to
+// the client-side calculation (the backend returns 404 for them).
+const PREDICTABLE_CROPS = new Set(['lettuce', 'tomatoes']);
 
 // --- Helper Component Props ---
 
@@ -274,6 +293,10 @@ export default function DashboardPage() {
     waterLevel: 100, // %
   });
 
+  // AI prediction from the backend (POST /api/sim/predict). Null when the backend
+  // is unreachable or the crop has no dataset — the AI card then falls back to `metrics`.
+  const [prediction, setPrediction] = useState<Prediction | null>(null);
+
   // Garden planter UI state
   const [activeShelf, setActiveShelf] = useState<number>(0);
   const [shelfPlants, setShelfPlants] = useState<Record<number, ('empty' | 'lettuce' | 'tomato')[]>>({
@@ -349,6 +372,62 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [isRunning, activeCrop, params.ph, params.temp, params.humidity]); // Added deps for params drift simulation consistency
 
+  // -- AI Prediction Fetch --
+  // Calls the backend prediction endpoint with the current environment state.
+  // On any failure (backend down, unknown crop) it clears `prediction` so the AI
+  // card falls back to the client-side `metrics` — the panel never breaks.
+  const fetchPrediction = async () => {
+    if (!PREDICTABLE_CROPS.has(activeCrop.id)) {
+      setPrediction(null);
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/sim/predict`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          crop_type: activeCrop.id, // backend maps "tomatoes" -> "tomato"
+          growth_percent: growthStage,
+          ph: params.ph,
+          ec: params.ec,
+          air_temperature_c: params.temp,
+          humidity_percent: params.humidity,
+          co2_ppm: params.co2,
+        }),
+      });
+      if (!res.ok) {
+        setPrediction(null);
+        return;
+      }
+      const data = await res.json();
+      setPrediction({
+        harvestQuality: data.harvest_quality,
+        stressFactor: data.stress_factor,
+        timeToHarvest: data.estimated_days_to_harvest,
+        riskLevel: data.risk_level,
+        explanation: data.explanation,
+        source: data.source,
+      });
+    } catch {
+      setPrediction(null); // graceful fallback to client-side metrics
+    }
+  };
+
+  // Real-time prediction: re-fetch whenever the environment inputs, crop, or growth
+  // stage change. This reacts live to manual slider edits (even while paused) AND to
+  // the parameter drift during a run — each render rebuilds fetchPrediction with the
+  // current values, so there's no stale closure. Debounced so dragging a slider
+  // coalesces into a single request to the backend.
+  useEffect(() => {
+    if (!PREDICTABLE_CROPS.has(activeCrop.id)) {
+      setPrediction(null);
+      return;
+    }
+    const timer = setTimeout(fetchPrediction, PREDICT_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCrop.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStage]);
+
   // -- Handlers --
   const handleReset = () => {
     setIsRunning(false);
@@ -364,6 +443,7 @@ export default function DashboardPage() {
     });
     setAlerts([]);
     setMetrics({ yieldPrediction: 100, stressLevel: 0, waterLevel: 100 });
+    setPrediction(null);
   };
 
   const getGrowthLabel = (stage: number): string => {
@@ -798,28 +878,44 @@ export default function DashboardPage() {
             </Card>
 
             <Card title="AI Yield Prediction" className="relative overflow-hidden">
-               {/* AI Badge */}
+               {/* Source Badge — reflects whether the number came from the dataset endpoint or the local fallback */}
                <div className="absolute top-3 right-3 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">
-                  <Cpu size={10} /> Model v2.1
+                  <Cpu size={10} /> {prediction ? 'Dataset' : 'Local'}
                </div>
 
-               <div className="text-center py-4">
-                  <div className="text-4xl font-bold text-white mb-1">{metrics.yieldPrediction.toFixed(0)}%</div>
-                  <div className="text-xs text-slate-400">Estimated Harvest Quality</div>
-               </div>
+               {(() => {
+                 const harvestQuality = prediction ? prediction.harvestQuality : metrics.yieldPrediction;
+                 const stress = prediction ? prediction.stressFactor : metrics.stressLevel;
+                 return (
+                   <>
+                     <div className="text-center py-4">
+                        <div className="text-4xl font-bold text-white mb-1">{harvestQuality.toFixed(0)}%</div>
+                        <div className="text-xs text-slate-400">Estimated Harvest Quality</div>
+                     </div>
 
-               <div className="space-y-2 mt-2">
-                  <div className="flex justify-between text-xs">
-                     <span className="text-slate-500">Stress Factor</span>
-                     <span className={`${metrics.stressLevel > 20 ? 'text-red-400' : 'text-green-400'}`}>{metrics.stressLevel.toFixed(1)}%</span>
-                  </div>
-                  <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                     <div className="h-full bg-red-500 stress-bar" style={{ ['--stress-width' as any]: `${metrics.stressLevel}%` }}></div>
-                  </div>
-                  <p className="text-[10px] text-slate-500 mt-2 leading-tight">
-                     prediction based on current pH stability and temperature consistency over the last 12 simulated hours.
-                  </p>
-               </div>
+                     <div className="space-y-2 mt-2">
+                        {prediction && (
+                           <div className="flex justify-between text-xs">
+                              <span className="text-slate-500">Est. Time to Harvest</span>
+                              <span className="text-slate-200 font-mono">{prediction.timeToHarvest.toFixed(0)} days</span>
+                           </div>
+                        )}
+                        <div className="flex justify-between text-xs">
+                           <span className="text-slate-500">Stress Factor</span>
+                           <span className={`${stress > 20 ? 'text-red-400' : 'text-green-400'}`}>{stress.toFixed(1)}%</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                           <div className="h-full bg-red-500 stress-bar" style={{ ['--stress-width' as any]: `${stress}%` }}></div>
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-2 leading-tight">
+                           {prediction
+                             ? prediction.explanation
+                             : 'Prediction based on current pH stability and temperature consistency over the last 12 simulated hours.'}
+                        </p>
+                     </div>
+                   </>
+                 );
+               })()}
             </Card>
 
              {/* Educational Micro-module */}
