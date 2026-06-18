@@ -115,8 +115,9 @@ interface ControlSliderProps {
   min: number;
   max: number;
   step: number;
-  onChange: (value: number) => void;
+  onChange?: (value: number) => void;
   optimal: number;
+  readOnly?: boolean;
 }
 
 interface NavItemProps {
@@ -165,13 +166,14 @@ const MetricGauge: React.FC<MetricGaugeProps> = ({ label, value, unit, min, max,
   );
 };
 
-const ControlSlider: React.FC<ControlSliderProps> = ({ label, icon, value, min, max, step, onChange, optimal }) => {
+const ControlSlider: React.FC<ControlSliderProps> = ({ label, icon, value, min, max, step, onChange, optimal, readOnly = false }) => {
   const id = React.useId();
   return (
     <div className="mb-4 group">
       <div className="flex justify-between mb-1.5">
         <label htmlFor={id} className="flex items-center gap-2 text-slate-300 text-xs font-medium uppercase">
           {icon} {label}
+          {readOnly && <span className="text-[10px] text-slate-500 normal-case font-normal">(status only)</span>}
         </label>
         <span className="text-slate-400 font-mono text-xs bg-slate-800 px-1.5 py-0.5 rounded">
           Target: {optimal}
@@ -184,8 +186,9 @@ const ControlSlider: React.FC<ControlSliderProps> = ({ label, icon, value, min, 
           type="range"
           min={min} max={max} step={step}
           value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value))}
-          className="flex-1 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500 hover:accent-blue-400 transition-all"
+          onChange={(e) => !readOnly && onChange?.(parseFloat(e.target.value))}
+          disabled={readOnly}
+          className={`flex-1 h-2 bg-slate-800 rounded-lg appearance-none transition-all ${readOnly ? 'opacity-50 cursor-not-allowed accent-slate-500' : 'cursor-pointer accent-blue-500 hover:accent-blue-400'}`}
         />
         <input
           id={`${id}-value`}
@@ -278,7 +281,7 @@ export default function DashboardPage() {
     1: Array(9).fill('empty'),
     2: Array(9).fill('empty'),
   });
-  const [openDropdown, setOpenDropdown] = useState<{ shelf: number; idx: number } | null>(null);
+  const [openDropdown, setOpenDropdown] = useState<{ shelf: number; row: number } | null>(null);
   const [cropConfirmation, setCropConfirmation] = useState<string | null>(null);
 
   const shelves = [
@@ -370,28 +373,36 @@ export default function DashboardPage() {
     return "Harvest Ready";
   };
 
-  const handlePlanterClick = (shelfId: number, idx: number) => {
-    if (openDropdown?.shelf === shelfId && openDropdown?.idx === idx) {
+  const handlePlanterClick = (shelfId: number, row: number) => {
+    if (openDropdown?.shelf === shelfId && openDropdown?.row === row) {
       setOpenDropdown(null);
     } else {
-      setOpenDropdown({ shelf: shelfId, idx });
+      setOpenDropdown({ shelf: shelfId, row });
     }
   };
 
-  const assignCrop = (crop: 'lettuce' | 'tomato', shelfId: number, idx: number) => {
-    setShelfPlants(prev => {
-      const updated = [...prev[shelfId]];
-      updated[idx] = crop;
-      return { ...prev, [shelfId]: updated };
-    });
+  const assignCrop = (crop: 'lettuce' | 'tomato', shelfId: number, row: number) => {
+    const currentCrop = shelfPlants[shelfId].find(s => s !== 'empty');
+    const isChange = currentCrop && currentCrop !== crop;
+    setShelfPlants(prev => ({
+      ...prev,
+      [shelfId]: Array(9).fill(crop),
+    }));
     setOpenDropdown(null);
-    const planterId = `crop${idx + 1}`;
-    setCropConfirmation(`${planterId} added to simulation`);
+    if (isChange) {
+      setCropConfirmation('Crop changed — restarting simulation');
+      handleReset();
+    } else {
+      setCropConfirmation(`${crop.charAt(0).toUpperCase() + crop.slice(1)} added to simulation`);
+    }
     setTimeout(() => setCropConfirmation(null), 3000);
   };
 
   const shelfOccupancy = (shelfId: number) =>
     shelfPlants[shelfId].filter(slot => slot !== 'empty').length;
+
+  const rowOccupancy = (shelfId: number, row: number) =>
+    shelfPlants[shelfId].slice(row * 3, row * 3 + 3).filter(s => s !== 'empty').length;
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden selection:bg-blue-500/30">
@@ -592,7 +603,7 @@ export default function DashboardPage() {
                   value={params.ec}
                   min={0.5} max={4.0} step={0.1}
                   optimal={activeCrop.optimal.ec}
-                  onChange={(v) => setParams({...params, ec: v})}
+                  readOnly
                />
                <ControlSlider
                   label="Temperature (°C)"
@@ -646,7 +657,7 @@ export default function DashboardPage() {
                           onClick={() => setActiveShelf(shelf.id)}
                           className={`group w-full rounded-xl border transition-all flex flex-col gap-1 px-3 py-3 text-left ${isActive ? 'border-emerald-400 bg-slate-800 shadow-lg shadow-emerald-900/40' : 'border-slate-700 bg-slate-800/60 hover:border-emerald-300/70 hover:bg-slate-800/80'}`}
                           aria-pressed={isActive}
-                          aria-label={`${shelf.name}, ${shelfOccupancy(shelf.id)} of 9 planted`}
+                          aria-label={`${shelf.name}, ${Math.floor(shelfOccupancy(shelf.id) / 3)} of 3 rows planted`}
                         >
                           <div className="flex items-center justify-between">
                             <div>
@@ -654,7 +665,7 @@ export default function DashboardPage() {
                               <div className="text-[11px] text-slate-400">{shelf.crops}</div>
                             </div>
                             <div className={`text-[11px] px-2 py-1 rounded-full font-mono ${isActive ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/50' : 'bg-slate-900 text-slate-300 border border-slate-700'}`}>
-                              {shelfOccupancy(shelf.id)}/9 planted
+                              {Math.floor(shelfOccupancy(shelf.id) / 3)}/3 rows
                             </div>
                           </div>
                           <div className="relative mt-2 h-5 rounded-lg overflow-hidden bg-slate-950 border border-slate-700">
@@ -679,60 +690,73 @@ export default function DashboardPage() {
                   <div className="text-[11px] font-mono text-slate-400">Click a planter to assign a crop</div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200/60 bg-[#f6f7ee] p-4 shadow-inner">
-                  <div className="grid grid-cols-3 gap-4">
-                    {shelfPlants[activeShelf].map((slot, idx) => {
-                      const planterId = `crop${idx + 1}`;
-                      const isOpen = openDropdown?.shelf === activeShelf && openDropdown?.idx === idx;
-                      return (
-                        <div key={planterId} id={planterId} className="relative flex flex-col items-center gap-1">
-                          <button
-                            onClick={() => handlePlanterClick(activeShelf, idx)}
-                            className="relative aspect-square w-full rounded-full transition-transform duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 flex items-center justify-center"
-                            aria-label={`${planterId}, ${slot === 'empty' ? 'empty' : slot}`}
-                            style={{
-                              backgroundColor: '#5b3a2c',
-                              boxShadow: slot !== 'empty'
-                                ? '0 0 0 6px #d16a55, inset 0 0 0 2px rgba(0,0,0,0.05)'
-                                : isOpen
-                                ? '0 0 0 5px #60a5fa'
-                                : '0 0 0 3px #d16a55',
-                              opacity: slot !== 'empty' ? 1 : 0.65,
-                            }}
-                          >
-                            {slot !== 'empty' && (
-                              <img
-                                src={`/${slot}.svg`}
-                                alt={slot}
-                                className="w-3/5 h-3/5 object-contain pointer-events-none"
-                              />
-                            )}
-                          </button>
-                          {isOpen && (
-                            <div
-                              id="cropSelect"
-                              className="absolute top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden text-xs w-28"
-                            >
-                              <button
-                                onClick={() => assignCrop('lettuce', activeShelf, idx)}
-                                className="flex items-center gap-2 w-full px-3 py-2 hover:bg-green-50 text-slate-700"
-                              >
-                                <img src="/lettuce.svg" alt="lettuce" className="w-4 h-4" />
-                                Lettuce
-                              </button>
-                              <button
-                                onClick={() => assignCrop('tomato', activeShelf, idx)}
-                                className="flex items-center gap-2 w-full px-3 py-2 hover:bg-red-50 text-slate-700"
-                              >
-                                <img src="/tomato.svg" alt="tomato" className="w-4 h-4" />
-                                Tomato
-                              </button>
-                            </div>
-                          )}
+                <div className="rounded-xl border border-slate-200/60 bg-[#f6f7ee] p-4 shadow-inner space-y-3">
+                  {[0, 1, 2].map(row => {
+                    const isOpen = openDropdown?.shelf === activeShelf && openDropdown?.row === row;
+                    const rowSlots = shelfPlants[activeShelf].slice(row * 3, row * 3 + 3);
+                    return (
+                      <div key={row} className="relative">
+                        <div className="flex items-center justify-between mb-1.5 px-0.5">
+                          <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Row {row + 1}</span>
+                          <span className="text-[10px] font-mono text-slate-500">{rowOccupancy(activeShelf, row)}/3</span>
                         </div>
-                      );
-                    })}
-                  </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          {rowSlots.map((slot, colIdx) => {
+                            const globalIdx = row * 3 + colIdx;
+                            const planterId = `crop${globalIdx + 1}`;
+                            return (
+                              <div key={planterId} id={planterId} className="relative flex flex-col items-center">
+                                <button
+                                  onClick={() => handlePlanterClick(activeShelf, row)}
+                                  className="relative aspect-square w-full rounded-full transition-transform duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 flex items-center justify-center"
+                                  aria-label={`${planterId}, ${slot === 'empty' ? 'empty' : slot}`}
+                                  style={{
+                                    backgroundColor: '#5b3a2c',
+                                    boxShadow: slot !== 'empty'
+                                      ? '0 0 0 6px #d16a55, inset 0 0 0 2px rgba(0,0,0,0.05)'
+                                      : isOpen
+                                      ? '0 0 0 5px #60a5fa'
+                                      : '0 0 0 3px #d16a55',
+                                    opacity: slot !== 'empty' ? 1 : 0.65,
+                                  }}
+                                >
+                                  {slot !== 'empty' && (
+                                    <img
+                                      src={`/${slot}.svg`}
+                                      alt={slot}
+                                      className="w-3/5 h-3/5 object-contain pointer-events-none"
+                                    />
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {isOpen && (
+                          <div
+                            id="cropSelect"
+                            className="absolute right-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden text-xs w-32"
+                          >
+                            <div className="px-3 py-1.5 text-[10px] text-slate-400 border-b border-slate-100 uppercase tracking-wide">Apply to all 9 planters</div>
+                            <button
+                              onClick={() => assignCrop('lettuce', activeShelf, row)}
+                              className="flex items-center gap-2 w-full px-3 py-2 hover:bg-green-50 text-slate-700"
+                            >
+                              <img src="/lettuce.svg" alt="lettuce" className="w-4 h-4" />
+                              Lettuce
+                            </button>
+                            <button
+                              onClick={() => assignCrop('tomato', activeShelf, row)}
+                              className="flex items-center gap-2 w-full px-3 py-2 hover:bg-red-50 text-slate-700"
+                            >
+                              <img src="/tomato.svg" alt="tomato" className="w-4 h-4" />
+                              Tomato
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {cropConfirmation && (
