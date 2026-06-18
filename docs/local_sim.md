@@ -19,8 +19,8 @@ and out, and how the prediction is produced from the **local synthetic dataset**
 │  app/dashboard/page.tsx     │                                      │   app/routers/sim.py         │
 │                             │                                      │                              │
 │  • AI Yield Prediction card │  ◀──────  JSON response  ──────────  │   • validates request        │
-│  • re-predicts live on any  │                                      │   • looks up nearest row     │
-│    input change (debounced) │                                      │   • builds explanation       │
+│  • predicts live once the   │                                      │   • looks up nearest row     │
+│    scenario is running       │                                      │   • builds explanation       │
 └─────────────────────────────┘                                      └───────────────┬──────────────┘
             ▲                                                                         │
             │ fallback to client-side calc                                           │ reads (cached)
@@ -55,51 +55,56 @@ matches the current environment, and returns that row's scores.
 
 ## 3. Step-by-step data flow
 
-1. **User interacts with the dashboard.** They pick a crop (Lettuce or Tomatoes), drag a
-   slider (pH, temperature, humidity, CO₂), or press **Simulate** to let values drift.
+1. **User sets up the scenario.** They pick a crop (Lettuce or Tomatoes), **plant it in a
+   pod** (click a planter → assign the crop), and press **Simulate**.
 
-2. **Frontend re-predicts on every input change (real-time, bidirectional).** A
-   `useEffect` in `app/dashboard/page.tsx` is keyed on the environment inputs
-   (`params.ph`, `params.temp`, `params.humidity`, `params.ec`, `params.co2`), the crop,
-   and `growthStage`. Whenever any of them changes — a **manual slider edit even while
-   paused**, or **parameter drift while running** — it schedules `fetchPrediction()`.
-   The call is **debounced by `PREDICT_DEBOUNCE_MS` (300 ms)** so dragging a slider
-   coalesces into a single request. Because the effect re-runs on each change, it always
-   sends the *current* values (no stale closure).
+2. **The panel only goes live once the scenario is ready.** The prediction `useEffect` in
+   `app/dashboard/page.tsx` is **gated** — it does nothing (and clears the panel) unless
+   **all three** hold: (a) a crop is planted in at least one pod, (b) the simulation is
+   running (`isRunning`), and (c) the selected crop exists in the dataset. This prevents
+   the panel from reacting before the user has actually set anything up.
 
-3. **Frontend builds the payload.** `fetchPrediction()` sends the current environment
+3. **Once live, it re-predicts in real time (bidirectional).** While gated open, the
+   effect is keyed on the environment inputs (`params.ph`, `params.temp`,
+   `params.humidity`, `params.ec`, `params.co2`), the crop, and `growthStage`. Any change
+   — a **manual slider edit** or **parameter drift during the run** — schedules
+   `fetchPrediction()`, **debounced by `PREDICT_DEBOUNCE_MS` (300 ms)** so a slider drag
+   coalesces into one request. Each render rebuilds the call with the *current* values, so
+   there's no stale closure.
+
+4. **Frontend builds the payload.** `fetchPrediction()` sends the current environment
    state (`params`), the selected crop id, and the current growth progress
    (`growthStage`, 0–100) to `POST /api/sim/predict`. The crop id `"tomatoes"` is sent
    as-is — the backend maps it to the dataset's `"tomato"`.
 
-4. **Backend validates the request.** FastAPI parses the body into the `PredictRequest`
+5. **Backend validates the request.** FastAPI parses the body into the `PredictRequest`
    Pydantic model. Missing numeric fields fall back to sensible defaults.
 
-5. **Backend loads the dataset (once).** `backend/app/sim/dataset.py` reads the CSV at
+6. **Backend loads the dataset (once).** `backend/app/sim/dataset.py` reads the CSV at
    the repo root and caches it in memory (`@lru_cache`), so only the first request pays
    the file-read cost. It filters to the requested crop's rows.
 
-6. **Backend finds the nearest row.** It computes a normalized Euclidean distance
+7. **Backend finds the nearest row.** It computes a normalized Euclidean distance
    between the request's `ph` / `air_temperature_c` / `humidity_percent` and each
    candidate row, then selects the closest row. (If `growth_stage` is provided and has
    matching rows, it narrows to that stage first.)
 
-7. **Backend reads the precomputed scores** from that row:
+8. **Backend reads the precomputed scores** from that row:
    - `predicted_yield_score` → `harvest_quality`
    - `stress_score` → `stress_factor`
    - `risk_level`, `status` → passed through
 
-8. **Backend derives the extras:**
+9. **Backend derives the extras:**
    - **`estimated_days_to_harvest`** = `cycle_length × (1 − growth_percent / 100)`, where
      `cycle_length` is the crop's maximum `day` in the dataset.
    - **`explanation`** = a one-line sentence naming the environment input that deviates
      most from the crop's optimal target (e.g. *"Humidity 30.0% is 30.0% below optimal —
      main stress driver; risk: high."*).
 
-9. **Backend logs and responds.** It logs a structured `sim_predict` event and returns
+10. **Backend logs and responds.** It logs a structured `sim_predict` event and returns
    the `PredictResponse` JSON.
 
-10. **Frontend updates the card live.** On success, the AI Yield Prediction card updates
+11. **Frontend updates the card live.** On success, the AI Yield Prediction card updates
     within ~300 ms of the change — harvest quality, estimated time to harvest, stress
     factor, and the explanation — with a **"Dataset"** badge. On any failure (backend
     down, or a crop with no dataset rows like herbs/cucumbers), `prediction` is set to
@@ -233,11 +238,12 @@ curl -X POST http://127.0.0.1:8001/api/sim/predict \
   -d '{"crop_type":"lettuce","ph":6.0,"air_temperature_c":20,"humidity_percent":60,"growth_percent":30}'
 ```
 
-**Frontend** — run `npm run dev`, open the dashboard, pick **Lettuce**. Now just **drag
-the Temperature or Humidity slider** (no need to press Simulate): within ~300 ms the AI
-Yield Prediction card re-predicts against the nearest dataset row — quality drops and
-stress rises as you move away from optimal. Press **Simulate** and it keeps updating live
-as values drift. Stop the backend and the card keeps working off the local calc (badge
+**Frontend** — run `npm run dev`, open the dashboard, then: (1) pick **Lettuce**,
+(2) **click a planter and assign Lettuce** to a pod, (3) press **Simulate**. The AI Yield
+Prediction card now goes live. Drag the **Temperature** or **Humidity** slider and within
+~300 ms it re-predicts against the nearest dataset row — quality drops and stress rises as
+you move away from optimal. Before those three steps the panel stays idle (it won't react
+to sliders). Stop the backend mid-run and the card keeps working off the local calc (badge
 flips to **Local**).
 
 ---

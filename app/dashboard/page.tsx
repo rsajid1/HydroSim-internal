@@ -413,20 +413,26 @@ export default function DashboardPage() {
     }
   };
 
-  // Real-time prediction: re-fetch whenever the environment inputs, crop, or growth
-  // stage change. This reacts live to manual slider edits (even while paused) AND to
-  // the parameter drift during a run — each render rebuilds fetchPrediction with the
-  // current values, so there's no stale closure. Debounced so dragging a slider
-  // coalesces into a single request to the backend.
+  // Real-time prediction — but only once the scenario is actually live:
+  //   1) a crop is planted in at least one pod,
+  //   2) the simulation is running (Simulate pressed),
+  //   3) the selected crop exists in the local dataset.
+  // While all three hold, it re-fetches on every environment/growth change (manual
+  // slider edits and parameter drift), debounced so a slider drag coalesces into one
+  // request. Otherwise the prediction is cleared so the panel stays idle instead of
+  // reacting before the user has set anything up.
   useEffect(() => {
-    if (!PREDICTABLE_CROPS.has(activeCrop.id)) {
+    const hasPlantedCrop = Object.values(shelfPlants).some(
+      rows => rows.some(slot => slot !== 'empty')
+    );
+    if (!isRunning || !hasPlantedCrop || !PREDICTABLE_CROPS.has(activeCrop.id)) {
       setPrediction(null);
       return;
     }
     const timer = setTimeout(fetchPrediction, PREDICT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCrop.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStage]);
+  }, [isRunning, shelfPlants, activeCrop.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStage]);
 
   // -- Handlers --
   const handleReset = () => {
