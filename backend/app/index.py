@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth
 from app.routers import database
 from app.routers import users
+from app.routers import sim
 
 # Logging import
 from app.utils.logger import logger_setup
@@ -54,4 +55,7 @@ app.include_router(database.router)
 # Users
 app.include_router(users.router)
 
-# future api routes: Simulations , production, etc.. here.
+# Simulation / AI prediction
+app.include_router(sim.router)
+
+# future api routes: production, etc.. here.
