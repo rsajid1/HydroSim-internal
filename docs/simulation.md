@@ -18,21 +18,26 @@ When you press **Play**, the simulation steps through rows of recorded data — 
 | Water level | Telemetry — Water Level gauge |
 | Growth stage | Plant growth label (Seedling → Vegetative → Harvest Ready) |
 
-The data comes from `data/synthetic_hydroponics_dataset.csv` and is filtered to **lettuce crops only**, using **NFT** and **aeroponics** system types (90 rows total). When the last row is reached, the simulation loops back to the beginning.
+The data comes from `data/synthetic_hydroponics_dataset.csv`, loaded per selected crop via
+`GET /api/dataset?crop=<id>` and sorted by grow-cycle `day`. Lettuce and tomato both have
+dataset rows; the System Setup selector does not narrow the rows (the synthetic data is not
+varied by system type). When the last row is reached, the simulation loops back to the start.
 
-If the dataset hasn't loaded yet, the simulation falls back to random parameter drift until the data is available.
+If the selected crop has no dataset rows (herbs, cucumbers) or the dataset fetch fails, the
+simulation falls back to random parameter drift so it never stalls.
 
 ---
 
 ## How to Change the Simulation
 
 ### Change which crops or systems are shown
-Edit the filter in `app/api/dataset/route.ts`:
-```ts
-.filter(r => r.crop_type === 'lettuce' && (r.system_type === 'nft' || r.system_type === 'aeroponics'))
-```
-- To add tomato: change `=== 'lettuce'` to `!== ''` (include all)
-- To add DWC: add `|| r.system_type === 'dwc'`
+Crop filtering lives in `filterRowsForCrop()` in `lib/dataset.ts` (consumed by
+`app/api/dataset/route.ts`). It returns all rows for the requested crop, sorted by `day`.
+- The crop is chosen by the dashboard via `GET /api/dataset?crop=<id>` (the crop dropdown).
+- To make the dataset switch on system type too, add a `system` query param in
+  `app/api/dataset/route.ts` and an extra `system_type` filter in `filterRowsForCrop()`.
+- To add a brand-new crop, add its rows to the CSV and (if the UI id differs from the
+  dataset `crop_type`) extend the alias map in `lib/dataset.ts`.
 
 ### Change simulation speed
 In `app/dashboard/page.tsx`, find the simulation loop and change the interval:

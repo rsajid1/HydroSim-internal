@@ -255,6 +255,8 @@ flips to **Local**).
 - **No confidence levels** — planned for the ML phase (issue #8 notes).
 - **Lettuce + tomato only** — other crops (herbs, cucumbers) have no dataset rows and use
   the client-side fallback.
-- The live simulation loop in `page.tsx` still uses random parameter drift and does not
-  yet replay dataset rows (see the note in `docs/simulation.md`); the prediction overlay
-  is independent of that.
+- The live simulation loop in `page.tsx` now **replays the local synthetic dataset** for
+  the selected crop (lettuce/tomato) — one recorded row per tick, sourced from
+  `GET /api/dataset?crop=<id>`. It only falls back to random parameter drift when the crop
+  has no dataset rows (herbs/cucumbers) or the dataset fetch fails. The AI prediction
+  overlay remains independent and continues to query the backend.
