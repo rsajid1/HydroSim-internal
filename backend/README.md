@@ -49,27 +49,38 @@ pip install -r requirements.txt
 
 ### 4. Environment configuration
 
-Create a `.env` file in the `backend` directory:
+Create a `.env` file in the `backend` directory. These map to `Settings` in
+`config/config.py`. The Cognito values are **required** — `app/routers/auth.py` validates
+them at import time and the app will not start if they are missing:
 
 ```env
-ENVIRONMENT=development
 DEBUG=true
-API_V1_PREFIX=/api
-HOST=127.0.0.1
-PORT=8001
-CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001
+
+# AWS Cognito (required)
+COGNITO_REGION=us-east-1
+COGNITO_USER_POOL_ID=your-user-pool-id
+COGNITO_CLIENT_ID=your-client-id
+COGNITO_CLIENT_SECRET=your-client-secret
+
+# PostgreSQL (used by the database routes)
+DB_HOST=localhost
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_NAME=postgres
+DB_PORT=5432
 ```
 
 ## Running the Server
 
 ```bash
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+uvicorn app.index:app --reload --host 127.0.0.1 --port 8001
 ```
 
 Or using uv:
 
 ```bash
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.index:app --reload
 ```
 
 The API will be available at:
@@ -83,19 +94,24 @@ The API will be available at:
 backend/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py              # FastAPI application entry point
-│   ├── models/              # Database and Pydantic models
+│   ├── index.py             # FastAPI application entry point (app.index:app)
+│   ├── db.py                # PostgreSQL connection + query helpers (psycopg2)
+│   ├── models/              # Pydantic / data models
 │   ├── routers/             # API route handlers
-│   │   ├── __init__.py
+│   │   ├── auth.py          # AWS Cognito signup / login / password reset
+│   │   ├── database.py      # Database health + query routes
 │   │   ├── health.py        # Health check endpoint
-│   │   └── users.py         # User-related endpoints (placeholder)
-│   └── services/            # Business logic layer
+│   │   ├── sim.py           # Simulation / AI prediction (POST /api/sim/predict)
+│   │   └── users.py         # User-related endpoints
+│   ├── sim/
+│   │   └── dataset.py       # Loads + caches the local synthetic dataset CSV
+│   └── utils/
+│       └── logger.py        # Structured logging setup
 ├── config/
 │   ├── __init__.py
-│   └── config.py            # Application configuration
-├── db/                      # Database related files
+│   └── config.py            # Application settings (pydantic-settings)
+├── tests/                   # PyTest suite (FastAPI TestClient)
 ├── .env                     # Environment variables (not in git)
-├── .env.example             # Example environment file
 ├── .gitignore
 ├── pyproject.toml           # Project metadata and dependencies (uv)
 ├── requirements.txt         # Python dependencies
@@ -104,24 +120,38 @@ backend/
 
 ## API Endpoints
 
-### Health Check
-- **GET** `/api/health` - Returns API health status
-  - Response: `{"status": "ok"}`
+Interactive docs are available at `/docs` (Swagger) and `/redoc` once the server is running.
 
-### Root
-- **GET** `/` - API information
-  - Response: `{"message": "HydroSim API", "version": "0.1.0", "status": "running"}`
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`  | `/` | API information (`{"message": "HydroSim API", "version": "1.1.0", "status": "running"}`) |
+| `GET`  | `/api/health` | Health check |
+| `POST` | `/auth/signup` | Register a user via AWS Cognito |
+| `POST` | `/auth/login` | Authenticate and return Cognito tokens |
+| `POST` | `/auth/forgot-password` | Send a Cognito password-reset code |
+| `POST` | `/auth/confirm-forgot-password` | Confirm the reset code and set a new password |
+| `POST` | `/api/sim/predict` | Yield / stress prediction from the local synthetic dataset |
+| `GET`  | `/api/db/health` | PostgreSQL connectivity check |
+
+Routes are registered in `app/index.py`.
 
 ## Environment Variables
 
+These are read by `Settings` in `config/config.py`. See the `.env` example above.
+
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ENVIRONMENT` | Application environment | `development` |
-| `DEBUG` | Enable debug mode | `true` |
-| `API_V1_PREFIX` | API version prefix | `/api` |
-| `HOST` | Server host address | `127.0.0.1` |
-| `PORT` | Server port number | `8001` |
-| `CORS_ORIGINS` | Comma-separated list of allowed CORS origins | `http://localhost:3000,http://localhost:3001` |
+| `DEBUG` | Enable FastAPI debug mode | `false` |
+| `CORS_ORIGINS` | Comma-separated list of allowed CORS origins | `http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001` |
+| `COGNITO_REGION` | AWS Cognito region (**required**) | _empty_ |
+| `COGNITO_USER_POOL_ID` | Cognito user pool id (**required**) | _empty_ |
+| `COGNITO_CLIENT_ID` | Cognito app client id (**required**) | _empty_ |
+| `COGNITO_CLIENT_SECRET` | Cognito app client secret | _empty_ |
+| `DB_HOST` | PostgreSQL host | _empty_ |
+| `DB_USER` | PostgreSQL user | _empty_ |
+| `DB_PASSWORD` | PostgreSQL password | _empty_ |
+| `DB_NAME` | PostgreSQL database name | `postgres` |
+| `DB_PORT` | PostgreSQL port | `5432` |
 
 ## CORS Configuration
 
@@ -168,7 +198,7 @@ export async function fetchHealthCheck() {
 If you get a port permission error (WinError 10013), try:
 
 ```bash
-uvicorn app.main:app --reload --port 8002
+uvicorn app.index:app --reload --port 8002
 ```
 
 Or change the `PORT` value in your `.env` file.
@@ -185,5 +215,5 @@ Ensure you're running commands from the `backend` directory:
 
 ```bash
 cd backend
-uvicorn app.main:app --reload
+uvicorn app.index:app --reload
 ```

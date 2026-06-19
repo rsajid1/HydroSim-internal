@@ -1,7 +1,11 @@
-# Frontend (Next.js)
+# HydroSim Frontend (Next.js)
 
 This is the frontend client for the project, built using **Next.js** with **Tailwind CSS**, **shadcn ui**.  
 It interacts with the FastAPI backend through API calls.
+
+> This is a monorepo: the Next.js frontend lives at the **repository root** and the
+> FastAPI backend lives in [`backend/`](./backend/README.md). All commands below are run
+> from the repo root.
 
 ---
 
@@ -18,24 +22,27 @@ It interacts with the FastAPI backend through API calls.
 
 ## Folder Structure
 
-````
-frontend/
+```
+.
 ├── app/
-│   ├── auth/
-│   │   ├── login/
-│   │   └── signup/
+│   ├── auth/             ← login / signup / password reset pages
+│   ├── dashboard/        ← the main simulator UI (page.tsx)
+│   ├── api/dataset/      ← Next.js route that serves the local dataset CSV
 │   ├── layout.js
-│   ├── page.js       ← Health check integrated here
+│   ├── page.js           ← landing page (redirects to /auth/signup)
 │   └── globals.css
+├── components/ui/        ← shadcn/ui components
 ├── lib/
-│   ├── api.js        ← API communication lives here
+│   ├── api.js            ← backend API communication
+│   ├── dataset.ts        ← local dataset parse/filter helpers
 │   └── utils.js
+├── data/                 ← synthetic_hydroponics_dataset.csv
+├── docs/                 ← project documentation
 ├── public/
-├── .env
-├── package.json
-└── README.md
-
-````
+├── backend/              ← FastAPI backend (separate README)
+├── .env.local            ← frontend environment variables (not in git)
+└── package.json
+```
 
 ---
 
@@ -48,12 +55,9 @@ frontend/
 
 ## Setup Instructions
 
-### 1. Navigate to the Frontend Directory
-```bash
-cd frontend
-````
+### 1. Install Dependencies
 
-### 2. Install Dependencies
+From the repository root:
 
 ```bash
 npm install
@@ -61,15 +65,15 @@ npm install
 yarn install
 ```
 
-### 3. Environment Configuration
+### 2. Environment Configuration
 
-Create a `.env` file in the root of `/frontend`:
+Create a `.env.local` file in the repository root:
 
 ```
-NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8001
 ```
 
-### 4. Run the Development Server
+### 3. Run the Development Server
 
 ```bash
 npm run dev
@@ -89,7 +93,7 @@ Ensure your backend FastAPI server is running.
 The frontend communicates with it through:
 
 ```
-GET http://127.0.0.1:8000/api/health
+GET http://127.0.0.1:8001/api/health
 ```
 
 If you see a **“Server is healthy”** message in your browser, the connection is successful.
