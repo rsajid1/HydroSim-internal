@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import type { DatasetRow } from '@/lib/dataset';
 import {
   Activity,
   Droplets,
@@ -297,6 +298,15 @@ export default function DashboardPage() {
   // is unreachable or the crop has no dataset — the AI card then falls back to `metrics`.
   const [prediction, setPrediction] = useState<Prediction | null>(null);
 
+  // Local synthetic-dataset rows for the selected crop, loaded from /api/dataset when a
+  // run starts. When present, the simulation loop replays these recorded rows instead of
+  // applying random drift. Refs mirror the rows + current playback index so the interval
+  // always reads the latest values without a stale closure (and without re-subscribing).
+  const [datasetRows, setDatasetRows] = useState<DatasetRow[]>([]);
+  const datasetRowsRef = useRef<DatasetRow[]>([]);
+  const rowIndexRef = useRef<number>(0);
+  useEffect(() => { datasetRowsRef.current = datasetRows; }, [datasetRows]);
+
   // Garden planter UI state
   const [activeShelf, setActiveShelf] = useState<number>(0);
   const [shelfPlants, setShelfPlants] = useState<Record<number, ('empty' | 'lettuce' | 'tomato')[]>>({
@@ -354,15 +364,32 @@ export default function DashboardPage() {
       interval = setInterval(() => {
         setSimulationTime(prev => prev + 1);
 
-        // Simulate Parameter Drift (Entropy)
-        setParams(prev => ({
-          ...prev,
-          ph: Math.min(8.0, Math.max(4.0, prev.ph + (Math.random() - 0.5) * 0.05)),
-          temp: Math.min(40, Math.max(10, prev.temp + (Math.random() - 0.5) * 0.2)),
-          humidity: Math.min(100, Math.max(0, prev.humidity + (Math.random() - 0.5) * 1.0))
-        }));
+        const rows = datasetRowsRef.current;
+        if (rows.length > 0) {
+          // Replay the next recorded row from the local synthetic dataset, looping back
+          // to the start of the grow cycle when the end is reached.
+          const row = rows[rowIndexRef.current % rows.length];
+          rowIndexRef.current += 1;
+          setParams(prev => ({
+            ...prev,
+            ph: row.ph,
+            ec: row.ec,
+            temp: row.air_temperature_c,
+            humidity: row.humidity_percent,
+            co2: row.co2_ppm,
+          }));
+        } else {
+          // No dataset for this crop (herbs/cucumbers) or the load failed — fall back to
+          // the original random parameter drift so the simulation still moves.
+          setParams(prev => ({
+            ...prev,
+            ph: Math.min(8.0, Math.max(4.0, prev.ph + (Math.random() - 0.5) * 0.05)),
+            temp: Math.min(40, Math.max(10, prev.temp + (Math.random() - 0.5) * 0.2)),
+            humidity: Math.min(100, Math.max(0, prev.humidity + (Math.random() - 0.5) * 1.0))
+          }));
+        }
 
-        // Calculate Stress & Yield
+        // Calculate Stress & Yield (reacts to whichever params source is active)
         calculatePhysics();
 
         // Grow Plants
@@ -371,6 +398,33 @@ export default function DashboardPage() {
     }
     return () => clearInterval(interval);
   }, [isRunning, activeCrop, params.ph, params.temp, params.humidity]); // Added deps for params drift simulation consistency
+
+  // -- Dataset Replay Loader --
+  // When a run starts for a crop that exists in the local synthetic dataset, load that
+  // crop's rows (sorted by grow-cycle day) so the simulation loop can replay real
+  // recorded values. Crops with no dataset rows (herbs, cucumbers) or a failed fetch
+  // leave `datasetRows` empty, and the loop falls back to random drift — so the
+  // simulation never breaks. The fetch hits the Next.js route on the same origin.
+  useEffect(() => {
+    if (!isRunning || !PREDICTABLE_CROPS.has(activeCrop.id)) {
+      setDatasetRows([]);
+      rowIndexRef.current = 0;
+      return;
+    }
+    let cancelled = false;
+    rowIndexRef.current = 0;
+    (async () => {
+      try {
+        const res = await fetch(`/api/dataset?crop=${encodeURIComponent(activeCrop.id)}`);
+        if (!res.ok) throw new Error(`dataset fetch failed: ${res.status}`);
+        const rows: DatasetRow[] = await res.json();
+        if (!cancelled) setDatasetRows(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setDatasetRows([]); // fall back to random drift
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isRunning, activeCrop.id]);
 
   // -- AI Prediction Fetch --
   // Calls the backend prediction endpoint with the current environment state.
