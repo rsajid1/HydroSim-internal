@@ -15,6 +15,8 @@ Fix the known data-quality anomalies and fill missing values **causally** (no fu
 4. **`IUACAAS/Resources` 45 % missing** → don't depend on its resource columns.
 5. **Fills:** structural `0` for pre-truss `Cum_trusses`; forward-fill lab/recipe; interpolate
    growth. Impute using **past values only**.
+6. **NaN patch:** interpolate residual weather/light gaps (HumDef, Tot_PAR, AssimLight, Cum_irr,
+   water_sup, PARout, Iglob, Tout, Rhout, RadSum, AbsHumOut); ffill/bfill `WC_slab1/2`. → **0 missing** in the final table.
 
 ## Notes
 - `IUACAAS` is also the lowest producer — fine to keep for input variety, just don't trust its

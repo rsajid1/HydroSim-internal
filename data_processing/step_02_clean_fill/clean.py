@@ -34,6 +34,9 @@ CROP_MORPH = ["Stem_elong", "Stem_thick", "stem_dens", "plant_dens"]
 PROD = ["ProdA", "ProdB", "Nr_fruits_ClassA", "Weight_fruits_ClassA",
         "Nr_fruits_ClassB", "Weight_fruits_ClassB", "avg_nr_harvested_trusses",
         "Truss development time"]
+CONT_FILL = ["HumDef", "Tot_PAR", "AssimLight", "Cum_irr", "water_sup",
+             "PARout", "Iglob", "Tout", "Rhout", "RadSum", "AbsHumOut"]  # residual gaps -> interpolate
+SLAB_FILL = ["WC_slab1", "WC_slab2"]                                     # slab water content -> ffill/bfill
 
 def first_in_season_harvest(team):
     df = pd.read_csv(os.path.join(DATA, team, "Production.csv"), low_memory=False)
@@ -72,6 +75,12 @@ def main():
         if "Cum_trusses" in g:
             g["Cum_trusses"] = g["Cum_trusses"].fillna(0.0)      # structural: no trusses yet
         for c in CROP_MORPH + lab:                                # near-constant -> fill edges
+            if c in g:
+                g[c] = g[c].bfill().ffill()
+        for c in CONT_FILL:                                        # NaN patch: residual sensor gaps
+            if c in g:
+                g[c] = g[c].interpolate(limit_direction="both")
+        for c in SLAB_FILL:
             if c in g:
                 g[c] = g[c].bfill().ffill()
         out.append(g)
