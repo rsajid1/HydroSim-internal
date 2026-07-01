@@ -214,6 +214,11 @@ marimo/_lsp/
 __marimo__/
 
 
+# claude dependencies
+/memory
+/.claude
+
+
 
 # Front End Ignore Rules 
 
@@ -266,5 +271,13 @@ frontend/node_modules/
 .next/
 .DS_Store
 
-# linter 
+# linter
 .eslintcache
+
+# data_processing pipeline artifacts (bulky intermediates) + its venv
+/data_processing/artifacts/
+!/data_processing/artifacts/.gitkeep
+/data_processing/.venv
+
+# Raw AGC tomato dataset (~99 MB public data — keep out of git; source noted in data_processing/README.md)
+/data/Autonomous Greenhouse Challenge(AGC) - 2nd Edition/
