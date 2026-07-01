@@ -1,6 +1,6 @@
 # Step 3 — Feature engineering (incl. growth stage)
 
-**Status:** ☐ Not started
+**Status:** ☑ Done — `artifacts/03_features.parquet` (286,854 × 61 = 45 raw + 14 engineered); `growth_stage`/`growth_percent`, VPD, DLI, GDD, rolling Tair, pH excursions, NPK (N/P/K + ratio + uptake); setpoint/actuator columns dropped
 
 ## Goal
 Derive model features from the clean master, including the engineered **growth stage**.

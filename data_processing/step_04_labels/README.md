@@ -1,6 +1,6 @@
 # Step 4 — Labels (multi-output targets)
 
-**Status:** ☐ Not started
+**Status:** ☑ Done — `artifacts/04_training_table.parquet` (286,854 × 68). Targets `y_yield_score`, `y_stress_score`, `y_plant_height`, `y_stem_thickness`, `y_truss_count`, `y_plant_density` + `cum_yield`. Calibration: corr(stress, yield_score) = −0.68 (per-row), corr(mean_stress, final_yield) = −0.66 (per-team). Stress optima/weights are tunable constants in `labels.py`.
 
 ## Goal
 Build the supervised targets — yield + stress **plus the 3D growth outputs**.

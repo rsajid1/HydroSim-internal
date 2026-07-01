@@ -28,9 +28,9 @@ dates/lifecycle stay real. Daily is only ever an optional *training view*. (Plan
 | Step | Folder | Input → Output | Status |
 | --- | --- | --- | --- |
 | 1 | `step_01_consolidate/` | 7 raw files × 6 teams → `artifacts/01_master.parquet` | ☑ **Done** (286,854 × 129) |
-| 2 | `step_02_clean_fill/` | `01_master` → `artifacts/02_clean.parquet` | ☐ Not started |
-| 3 | `step_03_features/` | `02_clean` → `artifacts/03_features.parquet` | ☐ Not started |
-| 4 | `step_04_labels/` | `03_features` → `artifacts/04_training_table.parquet` | ☐ Not started |
+| 2 | `step_02_clean_fill/` | `01_master` → `artifacts/02_clean.parquet` | ☑ **Done** (286,854 × 124) |
+| 3 | `step_03_features/` | `02_clean` → `artifacts/03_features.parquet` | ☑ **Done** (286,854 × 61) |
+| 4 | `step_04_labels/` | `03_features` → `artifacts/04_training_table.parquet` | ☑ **Done** (286,854 × 68) |
 | 5 | `step_05_train/` | `04_training_table` → `artifacts/05_model.pkl` + `metrics.json` | ☐ Not started |
 | 6 | `step_06_serve/` | master + model → app `data/*.csv` + wired `predict()` | ☐ Not started |
 

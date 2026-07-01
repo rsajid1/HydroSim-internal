@@ -1,6 +1,6 @@
 # Step 2 — Clean & causal fill
 
-**Status:** ☐ Not started
+**Status:** ☑ Done — `artifacts/02_clean.parquet` (286,854 × 124); 56,160 pre-harvest production cells zeroed (typo removed), key columns 100% covered, 5 empty `Unnamed:` cols dropped
 
 ## Goal
 Fix the known data-quality anomalies and fill missing values **causally** (no future leakage).
