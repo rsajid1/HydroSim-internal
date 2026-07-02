@@ -5,8 +5,24 @@ from __future__ import annotations
 
 import csv
 import random
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+# Ensure the backend package is importable when this script is run from the repo root.
+_BACKEND_DIR = Path(__file__).resolve().parents[1] / "backend"
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+
+from app.sim.engine import (  # noqa: E402  (import after sys.path manipulation)
+    CROP_PROFILES,
+    LIMITS,
+    STRESS_WEIGHTS,
+    TOLERANCES,
+    classify,
+    compute_stress,
+    predict_yield,
+)
 
 
 # Fixed random seed so the generated CSV is identical every time the script runs.
@@ -47,48 +63,6 @@ FIELDNAMES = [
     "created_at",
 ]
 
-# Crop-specific target conditions and growth-stage day ranges.
-CROP_PROFILES = {
-    "lettuce": {
-        "source_profile": "osu_hydroponics_lettuce_profile",
-        "targets": {
-            "ph": 6.0,
-            "ec": 1.2,
-            "air_temperature_c": 20.0,
-            "water_temperature_c": 19.0,
-            "humidity_percent": 60.0,
-            "co2_ppm": 800.0,
-            "water_level_percent": 85.0,
-            "light_hours": 14.0,
-        },
-        "stages": {
-            "seedling": (1, 10),
-            "vegetative": (11, 35),
-            "harvest_ready": (36, 45),
-        },
-    },
-    "tomato": {
-        "source_profile": "purdue_greenhouse_tomato_profile",
-        "targets": {
-            "ph": 6.0,
-            "ec": 2.5,
-            "air_temperature_c": 25.0,
-            "water_temperature_c": 22.0,
-            "humidity_percent": 70.0,
-            "co2_ppm": 900.0,
-            "water_level_percent": 85.0,
-            "light_hours": 16.0,
-        },
-        "stages": {
-            "seedling": (1, 14),
-            "vegetative": (15, 42),
-            "flowering": (43, 65),
-            "fruiting": (66, 95),
-            "harvest_ready": (96, 120),
-        },
-    },
-}
-
 # Maximum random deviation from target values for each scenario.
 # Stable stays close to target, warning moves farther away, critical moves farthest.
 NOISE_BY_SCENARIO = {
@@ -124,44 +98,6 @@ NOISE_BY_SCENARIO = {
     },
 }
 
-# Hard bounds that keep generated environmental values within plausible ranges.
-LIMITS = {
-    "ph": (4.0, 8.0),
-    "ec": (0.5, 4.0),
-    "air_temperature_c": (10.0, 40.0),
-    "water_temperature_c": (10.0, 32.0),
-    "humidity_percent": (25.0, 100.0),
-    "co2_ppm": (300.0, 1200.0),
-    "water_level_percent": (20.0, 100.0),
-    "light_hours": (8.0, 20.0),
-}
-
-# Relative impact of each field on the synthetic stress score.
-# Higher weights make deviations in that field count more.
-STRESS_WEIGHTS = {
-    "ph": 18.0,
-    "ec": 16.0,
-    "air_temperature_c": 14.0,
-    "water_temperature_c": 10.0,
-    "humidity_percent": 10.0,
-    "co2_ppm": 8.0,
-    "water_level_percent": 14.0,
-    "light_hours": 10.0,
-}
-
-# Difference from target that counts as a full stress contribution for each field.
-# Example: 1.0 pH away from target reaches the full pH stress weight.
-TOLERANCES = {
-    "ph": 1.0,
-    "ec": 1.0,
-    "air_temperature_c": 8.0,
-    "water_temperature_c": 6.0,
-    "humidity_percent": 30.0,
-    "co2_ppm": 500.0,
-    "water_level_percent": 50.0,
-    "light_hours": 6.0,
-}
-
 
 def clamp(value: float, field: str) -> float:
     lower, upper = LIMITS[field]
@@ -176,22 +112,6 @@ def offset_value(target: float, field: str, scenario: str) -> float:
         direction = random.choice([-1, 1])
         offset = direction * random.uniform(magnitude * 0.55, magnitude)
     return clamp(target + offset, field)
-
-
-def calculate_stress(values: dict[str, float], targets: dict[str, float]) -> int:
-    total = 0.0
-    for field, weight in STRESS_WEIGHTS.items():
-        diff_ratio = abs(values[field] - targets[field]) / TOLERANCES[field]
-        total += min(1.0, diff_ratio) * weight
-    return round(max(0.0, min(100.0, total)))
-
-
-def classify(stress_score: int) -> tuple[str, str]:
-    if stress_score >= 60:
-        return "high", "critical"
-    if stress_score >= 30:
-        return "medium", "warning"
-    return "low", "stable"
 
 
 def round_value(field: str, value: float) -> float | int:
@@ -217,9 +137,9 @@ def build_rows() -> list[dict[str, str | int | float]]:
                             field: offset_value(target, field, scenario)
                             for field, target in targets.items()
                         }
-                        stress_score = calculate_stress(values, targets)
+                        stress_score = compute_stress(values, crop_type)
                         risk_level, status = classify(stress_score)
-                        predicted_yield_score = max(0, min(100, 100 - round(stress_score * 1.15)))
+                        predicted_yield_score = predict_yield(stress_score)
                         row_created_at = created_at + timedelta(minutes=record_number - 1)
 
                         rows.append(
