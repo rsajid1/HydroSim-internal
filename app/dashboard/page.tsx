@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import type { DatasetRow } from '@/lib/dataset';
 import {
   Activity,
   Droplets,
@@ -298,15 +297,6 @@ export default function DashboardPage() {
   // is unreachable or the crop has no dataset — the AI card then falls back to `metrics`.
   const [prediction, setPrediction] = useState<Prediction | null>(null);
 
-  // Local synthetic-dataset rows for the selected crop, loaded from /api/dataset when a
-  // run starts. When present, the simulation loop replays these recorded rows instead of
-  // applying random drift. Refs mirror the rows + current playback index so the interval
-  // always reads the latest values without a stale closure (and without re-subscribing).
-  const [datasetRows, setDatasetRows] = useState<DatasetRow[]>([]);
-  const datasetRowsRef = useRef<DatasetRow[]>([]);
-  const rowIndexRef = useRef<number>(0);
-  useEffect(() => { datasetRowsRef.current = datasetRows; }, [datasetRows]);
-
   // Garden planter UI state
   const [activeShelf, setActiveShelf] = useState<number>(0);
   const [shelfPlants, setShelfPlants] = useState<Record<number, ('empty' | 'lettuce' | 'tomato')[]>>({
@@ -364,31 +354,6 @@ export default function DashboardPage() {
       interval = setInterval(() => {
         setSimulationTime(prev => prev + 1);
 
-        const rows = datasetRowsRef.current;
-        if (rows.length > 0) {
-          // Replay the next recorded row from the local synthetic dataset, looping back
-          // to the start of the grow cycle when the end is reached.
-          const row = rows[rowIndexRef.current % rows.length];
-          rowIndexRef.current += 1;
-          setParams(prev => ({
-            ...prev,
-            ph: row.ph,
-            ec: row.ec,
-            temp: row.air_temperature_c,
-            humidity: row.humidity_percent,
-            co2: row.co2_ppm,
-          }));
-        } else {
-          // No dataset for this crop (herbs/cucumbers) or the load failed — fall back to
-          // the original random parameter drift so the simulation still moves.
-          setParams(prev => ({
-            ...prev,
-            ph: Math.min(8.0, Math.max(4.0, prev.ph + (Math.random() - 0.5) * 0.05)),
-            temp: Math.min(40, Math.max(10, prev.temp + (Math.random() - 0.5) * 0.2)),
-            humidity: Math.min(100, Math.max(0, prev.humidity + (Math.random() - 0.5) * 1.0))
-          }));
-        }
-
         // Calculate Stress & Yield (reacts to whichever params source is active)
         calculatePhysics();
 
@@ -398,33 +363,6 @@ export default function DashboardPage() {
     }
     return () => clearInterval(interval);
   }, [isRunning, activeCrop, params.ph, params.temp, params.humidity]); // Added deps for params drift simulation consistency
-
-  // -- Dataset Replay Loader --
-  // When a run starts for a crop that exists in the local synthetic dataset, load that
-  // crop's rows (sorted by grow-cycle day) so the simulation loop can replay real
-  // recorded values. Crops with no dataset rows (herbs, cucumbers) or a failed fetch
-  // leave `datasetRows` empty, and the loop falls back to random drift — so the
-  // simulation never breaks. The fetch hits the Next.js route on the same origin.
-  useEffect(() => {
-    if (!isRunning || !PREDICTABLE_CROPS.has(activeCrop.id)) {
-      setDatasetRows([]);
-      rowIndexRef.current = 0;
-      return;
-    }
-    let cancelled = false;
-    rowIndexRef.current = 0;
-    (async () => {
-      try {
-        const res = await fetch(`/api/dataset?crop=${encodeURIComponent(activeCrop.id)}`);
-        if (!res.ok) throw new Error(`dataset fetch failed: ${res.status}`);
-        const rows: DatasetRow[] = await res.json();
-        if (!cancelled) setDatasetRows(Array.isArray(rows) ? rows : []);
-      } catch {
-        if (!cancelled) setDatasetRows([]); // fall back to random drift
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isRunning, activeCrop.id]);
 
   // -- AI Prediction Fetch --
   // Calls the backend prediction endpoint with the current environment state.
@@ -479,14 +417,14 @@ export default function DashboardPage() {
     const hasPlantedCrop = Object.values(shelfPlants).some(
       rows => rows.some(slot => slot !== 'empty')
     );
-    if (!isRunning || !hasPlantedCrop || !PREDICTABLE_CROPS.has(activeCrop.id)) {
+    if (!hasPlantedCrop || !PREDICTABLE_CROPS.has(activeCrop.id)) {
       setPrediction(null);
       return;
     }
     const timer = setTimeout(fetchPrediction, PREDICT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRunning, shelfPlants, activeCrop.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStage]);
+  }, [shelfPlants, activeCrop.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStage]);
 
   // -- Handlers --
   const handleReset = () => {
@@ -729,6 +667,10 @@ export default function DashboardPage() {
             </Card>
 
             <Card title="Environment Controls" className="flex-1">
+               <p className="text-[10px] text-slate-500 mb-3 leading-tight">
+                 Environment settings are global — they apply to all pods on every shelf (shared nutrient
+                 solution &amp; climate). Per-pod overrides aren&apos;t supported.
+               </p>
                <ControlSlider
                   label="Acidity (pH)"
                   icon={<Droplets size={14} />}
@@ -743,7 +685,7 @@ export default function DashboardPage() {
                   value={params.ec}
                   min={0.5} max={4.0} step={0.1}
                   optimal={activeCrop.optimal.ec}
-                  readOnly
+                  onChange={(v) => setParams({ ...params, ec: v })}
                />
                <ControlSlider
                   label="Temperature (°C)"
@@ -940,7 +882,7 @@ export default function DashboardPage() {
             <Card title="AI Yield Prediction" className="relative overflow-hidden">
                {/* Source Badge — reflects whether the number came from the dataset endpoint or the local fallback */}
                <div className="absolute top-3 right-3 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">
-                  <Cpu size={10} /> {prediction ? 'Dataset' : 'Local'}
+                  <Cpu size={10} /> {prediction ? 'Engine' : 'Local'}
                </div>
 
                {(() => {

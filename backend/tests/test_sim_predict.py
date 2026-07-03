@@ -29,7 +29,7 @@ def test_predict_ideal_lettuce_high_quality_low_stress(client):
     body = response.json()
     assert body["harvest_quality"] >= 70
     assert body["stress_factor"] <= 30
-    assert body["source"] == "dataset"
+    assert body["source"] == "engine"
     assert body["explanation"]
 
 
