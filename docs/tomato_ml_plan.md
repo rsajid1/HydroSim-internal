@@ -130,8 +130,16 @@ can't populate is **train–serve skew**. The full 68-column table is the *label
 source*, not the feature matrix. Locked decisions:
 
 - **Inputs (engine-provided):** `ph`, `ec`, `air_temperature_c`, `humidity_percent`,
-  `co2_ppm`, `vpd` (derived), lifecycle (`days_since_transplant`, `gdd_cum`, `growth_percent`,
-  `growth_stage`), `crop_type`=tomato.
+  `co2_ppm`, `vpd` (derived), **`days_since_transplant`** (the *only* lifecycle feature),
+  `crop_type`=tomato.
+- **`growth_stage` and `growth_percent` are NOT features.** `growth_stage` means different
+  things in training (observed truss/harvest events) vs the engine (fixed calendar day-ranges)
+  → categorical mismatch → silent mispredict; `growth_percent` is `Stem_elong`-derived +
+  team-relative (leakage). Feed the continuous `days_since_transplant` on the real AGC
+  `[0, ~166]` axis — **don't** rescale to the engine's 120-day cycle. The engine keeps
+  computing `growth_stage` **for the UI only** (decoupled from the model).
+- **Cumulative/rolling features** (`gdd_cum`, `dli_24h`, `tair_24h_*`, `ph_excursion_24h`) are
+  out of v1 — they need session state the stateless endpoint lacks (unlock in v2).
 - **`ec` = feed EC** (`LabAnalysis.irr_EC`) — the recipe/supply EC the grower sets, **not**
   drain/slab EC (a response variable). Coarse (~14-day, ffilled).
 - **NPK and light/DLI are dropped** — no control/visualization for them (see `docs/TODO.md`

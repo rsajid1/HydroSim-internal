@@ -131,6 +131,15 @@ dataset**, they don't call each other at runtime.
       `POST /api/sim/predict`; overrides the score for tomato when a model is loaded;
       flip `source` `"engine"` → `"model"` so the UI shows who answered. Everything else
       falls back to the physics engine.
+- [ ] **Lifecycle input = `days_since_transplant` (continuous), NOT `growth_stage`/`growth_percent`.**
+      Resolves a train↔serve semantic mismatch: training labels stage from *observed events*
+      (`Cum_trusses>0`, `ProdA>0`); the engine can only assign it from *fixed day-ranges* → same
+      word, different plant → silent mispredict. `growth_percent` is `Stem_elong`-derived +
+      team-relative (leakage). **Actions:** add `days_since_transplant` to `PredictRequest`
+      (frontend sends the sim day); model ignores `growth_stage`/`growth_percent`; **engine keeps
+      computing `growth_stage` for the UI only** (decoupled). Feed real days on the AGC `[0, ~166]`
+      axis — **don't** rescale to the engine's 120-day cycle or stretch stage boundaries to 166
+      (competition window ≠ crop timing; teams transition on different days).
 - [ ] Retire the runtime CSV replay in `app/dashboard/page.tsx` / `GET /api/dataset`
       once the engine drives stepping (keep the CSV only as a dev/demo fallback).
 - [ ] Update `docs/local_sim.md` (still describes the CSV-lookup v1) and
