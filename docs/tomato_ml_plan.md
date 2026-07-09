@@ -13,6 +13,9 @@ Builds on `docs/dataset_controls.md` (control mapping) and `data/DATASET_ANALYSI
   (challenge winner, highest measured yield 14.92 kg/m²) — used for optimal targets + demo, not
   as the only training grower.
 - **Contract unchanged:** still `POST /api/sim/predict` (per `docs/local_sim.md`).
+- **Inputs bounded by `PredictRequest`** (see §6b): `ec` = **feed EC** (`irr_EC`); **NPK and
+  light dropped** (no control/viz). Model outputs = yield + 3D growth params; **stress stays
+  engine-owned**.
 
 ## 1. One master table — real 5-min resolution, real dates
 
@@ -119,12 +122,35 @@ pH/EC/Tair/VPD/CO₂, integrated over time) + growth-deficit (day's growth rate 
 scaled 0–100, with weights **fit against realized yield loss** so stress actually predicts lower
 harvest (real-data-grounded, not hand-tuned).
 
+## 6b. Feature contract — inputs are bounded by `PredictRequest`
+
+The model's **inputs** are limited to what the physics engine can supply live (the
+`PredictRequest` fields in `backend/app/routers/sim.py`) — training on any column the server
+can't populate is **train–serve skew**. The full 68-column table is the *label/derivation
+source*, not the feature matrix. Locked decisions:
+
+- **Inputs (engine-provided):** `ph`, `ec`, `air_temperature_c`, `humidity_percent`,
+  `co2_ppm`, `vpd` (derived), lifecycle (`days_since_transplant`, `gdd_cum`, `growth_percent`,
+  `growth_stage`), `crop_type`=tomato.
+- **`ec` = feed EC** (`LabAnalysis.irr_EC`) — the recipe/supply EC the grower sets, **not**
+  drain/slab EC (a response variable). Coarse (~14-day, ffilled).
+- **NPK and light/DLI are dropped** — no control/visualization for them (see `docs/TODO.md`
+  §1–2). Feed EC is the sole nutrient signal (a documented EC-alone scope trade-off).
+- **Outputs (model):** `y_yield_score` + the four 3D growth params (§6). **Stress stays
+  engine-owned** (`compute_stress`) in v1.
+- **Excluded (leakage/unservable):** all `y_*`/`cum_yield`/raw growth+production, greenhouse
+  internals + weather, raw `irr_*`/`drain_*`, and `team`.
+
+The canonical, itemized contract lives in
+[`data_processing/step_05_train/README.md`](../data_processing/step_05_train/README.md).
+
 ## 7. Model choice + architecture fit
 
-- **v1 — Tabular gradient-boosted (XGBoost/LightGBM)** on time-aware features (GDD, DLI-to-date,
-  `days_since_transplant`, rolling deviations). Captures temporal effects **without a sequence
-  input**, so it fits HydroSim's **stateless** `/api/sim/predict` (snapshot in → score out),
-  is low-latency (<2 s), and explainable (SHAP → the UI `explanation`). Multi-output for §6.
+- **v1 — Tabular gradient-boosted (XGBoost/LightGBM)** on the §6b servable feature set
+  (GDD/`days_since_transplant` carry the temporal effect). Captures temporal effects
+  **without a sequence input**, so it fits HydroSim's **stateless** `/api/sim/predict`
+  (snapshot in → score out), is low-latency (<2 s), and explainable (SHAP → the UI
+  `explanation`). Multi-output for §6.
 - **v2 — Sequence model (LSTM / TCN / Temporal Fusion Transformer)** on the 5-min sequences.
   Natural for real-resolution data, but needs a **history sequence**, so the backend must become
   **stateful** (track the session trajectory). Heavier; ~24 independent yield points/team →
