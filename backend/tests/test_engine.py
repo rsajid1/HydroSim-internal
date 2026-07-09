@@ -8,11 +8,14 @@ Covers issue #9's testing criteria:
 - Determinism: identical inputs → identical outputs.
 - Parity: compute_stress / classify reproduce the generator's original
   calculate_stress values exactly for known inputs.
+- Normalisation: a partial reading (the 5 fields the UI sends) still spans the
+  full 0-100 stress range, while the all-8-field path stays byte-identical.
 """
 import pytest
 
 from app.sim.engine import (
     CROP_PROFILES,
+    STRESS_WEIGHTS,
     classify,
     compute_growth_rate,
     compute_stress,
@@ -213,3 +216,84 @@ def test_stage_param_accepted_and_ignored_v1():
 def test_unknown_crop_raises_value_error():
     with pytest.raises(ValueError, match="Unknown crop"):
         optimal_targets("herbs")
+
+
+# ---------------------------------------------------------------------------
+# Normalisation over supplied fields
+# ---------------------------------------------------------------------------
+
+# The five fields the dashboard actually sends (see app/routers/sim.py).
+# Their combined weight is 66 of the 100 available.
+_UI_FIELDS = ("ph", "ec", "air_temperature_c", "humidity_percent", "co2_ppm")
+
+# Every UI field at or beyond its tolerance → each contributes its full weight.
+_UI_SATURATED = {
+    "ph": 4.0,              # |4.0 - 6.0| / 1.0   = 2.0 → capped at 1.0
+    "ec": 3.5,              # |3.5 - 1.2| / 1.0   = 2.3 → capped at 1.0
+    "air_temperature_c": 40.0,   # |40 - 20| / 8  = 2.5 → capped at 1.0
+    "humidity_percent": 100.0,   # |100 - 60| / 30 = 1.3 → capped at 1.0
+    "co2_ppm": 300.0,       # |300 - 800| / 500   = 1.0 exactly
+}
+
+
+def test_ui_subset_saturated_reaches_full_stress():
+    """The 5 UI fields at max deviation must reach 100, not the raw weight sum of 66.
+
+    Regression test for the stress cap: before normalisation the score could
+    never exceed 66, so the dashboard could not render a dying plant.
+    """
+    assert compute_stress(_UI_SATURATED, "lettuce") == 100
+
+
+def test_ui_subset_saturated_yields_zero_harvest():
+    """A fully stressed UI env must drive harvest quality to 0 (previously ~24)."""
+    stress = compute_stress(_UI_SATURATED, "lettuce")
+    assert predict_yield(stress) == 0
+
+
+def test_ui_subset_saturated_growth_rate_zero():
+    assert compute_growth_rate(_UI_SATURATED, "lettuce") == pytest.approx(0.0)
+
+
+def test_ui_subset_at_target_zero_stress():
+    at_target = {field: _LETTUCE_TARGETS[field] for field in _UI_FIELDS}
+    assert compute_stress(at_target, "lettuce") == 0
+
+
+def test_empty_env_returns_zero_without_dividing_by_zero():
+    """No supplied fields → no evidence of stress, and no ZeroDivisionError."""
+    assert compute_stress({}, "lettuce") == 0
+
+
+def test_subset_and_full_env_agree_at_equal_relative_deviation():
+    """Stress depends on relative deviation, not on how many fields were sent.
+
+    Every supplied field sits at exactly half its tolerance, so both the 5-field
+    and 8-field readings must score 50 despite carrying different total weight.
+    """
+    half_ui = {
+        "ph": 6.5,                  # +0.5 of 1.0 tolerance
+        "ec": 1.7,                  # +0.5 of 1.0
+        "air_temperature_c": 24.0,  # +4 of 8
+        "humidity_percent": 75.0,   # +15 of 30
+        "co2_ppm": 1050.0,          # +250 of 500
+    }
+    half_full = dict(half_ui)
+    half_full.update({
+        "water_temperature_c": 22.0,   # +3 of 6
+        "water_level_percent": 60.0,   # -25 of 50
+        "light_hours": 17.0,           # +3 of 6
+    })
+    assert compute_stress(half_ui, "lettuce") == 50
+    assert compute_stress(half_full, "lettuce") == 50
+
+
+def test_full_env_unchanged_by_normalisation():
+    """STRESS_WEIGHTS sums to 100, so the all-8-field path must not shift.
+
+    This is the generator-parity guard: the seeded CSV depends on this formula.
+    """
+    assert sum(STRESS_WEIGHTS.values()) == 100.0
+    env = dict(_LETTUCE_TARGETS)
+    env["ph"] = _LETTUCE_TARGETS["ph"] + 1.0
+    assert compute_stress(env, "lettuce") == 18

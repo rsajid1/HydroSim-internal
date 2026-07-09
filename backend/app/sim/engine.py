@@ -133,19 +133,28 @@ def compute_stress(
 ) -> float:
     """Weighted normalised-deviation stress score in [0, 100].
 
-    Reproduces the generator's ``calculate_stress`` formula exactly when all
-    eight fields are present.  Fields absent from ``env`` are silently skipped
-    so callers can pass a partial sensor reading (e.g. the UI sends only
-    ph / ec / air_temperature_c / humidity_percent / co2_ppm).
+    The score is rescaled by the weight actually supplied, so a partial sensor
+    reading still spans the full 0-100 range.  Without this, a caller passing a
+    subset of fields could never reach a high score: the UI sends only
+    ph / ec / air_temperature_c / humidity_percent / co2_ppm, worth 66 of the
+    100 available weight, capping stress at 66 and yield at ~24.
+
+    ``STRESS_WEIGHTS`` sums to exactly 100, so when all eight fields are present
+    the divisor is 100 and this reduces to the generator's ``calculate_stress``
+    formula unchanged — the seeded CSV stays byte-identical.
     """
     targets = optimal_targets(crop, stage)
     total = 0.0
+    present_weight = 0.0
     for field, weight in STRESS_WEIGHTS.items():
         if field not in env:
             continue
         diff_ratio = abs(env[field] - targets[field]) / TOLERANCES[field]
         total += min(1.0, diff_ratio) * weight
-    return round(max(0.0, min(100.0, total)))
+        present_weight += weight
+    if present_weight == 0.0:
+        return 0.0
+    return round(max(0.0, min(100.0, total * 100.0 / present_weight)))
 
 
 def compute_growth_rate(

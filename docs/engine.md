@@ -22,8 +22,14 @@ crop-optimal target, each deviation normalized by a per-field tolerance and
 capped so no single field dominates:
 
 ```
-stress = Σ_fields  min(1.0, |value − target| / tolerance) × weight      (clamped to 0–100)
+raw     = Σ_supplied  min(1.0, |value − target| / tolerance) × weight
+stress  = clamp(raw × 100 / Σ_supplied weight, 0, 100)
 ```
+
+The score is rescaled by the weight actually supplied so that a partial reading
+still spans the full 0–100 range. `STRESS_WEIGHTS` sums to exactly 100, so when
+all eight fields are present the divisor is 100 and the formula reduces to the
+plain weighted sum. An empty reading yields 0.
 
 **Growth rate** — the per-tick growth multiplier, high in good conditions and
 falling toward zero under severe stress:
@@ -121,7 +127,11 @@ CO₂ 300–1200 ppm, water level 20–100 %, light 8–20 h.
    (seedling vs fruiting) are not yet applied — the `stage` argument is accepted
    for forward-compatibility but ignored in v1 (issue #5 will use it).
 3. **Missing fields are skipped**, not penalized. Callers may pass a partial
-   reading (the UI sends only pH / EC / air temperature / humidity / CO₂).
+   reading (the UI sends only pH / EC / air temperature / humidity / CO₂), and
+   the score is normalized over the fields supplied (§1) so a partial reading can
+   still reach 100. Skipping treats an unmeasured field as *no evidence of
+   stress*, not as *at target* — with a caveat: a reading of a single field
+   scores that field's deviation on the whole 0–100 scale.
 4. **Stress is memoryless at the formula level;** cumulative/path-dependent
    behavior comes from the simulation loop that steps the engine over time
    (issue #3), not from the formula itself.
