@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Activity,
@@ -76,6 +76,8 @@ interface Alert {
 interface Prediction {
   harvestQuality: number;
   stressFactor: number;
+  growthRate: number;   // 0-1 speed multiplier from the engine; 1 = unstressed
+  cycleDays: number;    // full grow-cycle length for the crop
   timeToHarvest: number;
   riskLevel: string;
   explanation: string;
@@ -103,6 +105,11 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8001";
 
 // Debounce for the live prediction fetch — coalesces rapid slider drags into one request.
 const PREDICT_DEBOUNCE_MS = 300;
+
+// Simulated hours advanced per 1-second tick. Growth is derived from this and the crop's
+// cycle length, so the clock and the growth bar share one time base. At 6 h/tick a healthy
+// lettuce (45-day cycle) fills in ~3 real minutes and a tomato (120-day) in ~8.
+const SIM_HOURS_PER_TICK = 6;
 
 // UI crop ids that have rows in the local synthetic dataset. Others fall back to
 // the client-side calculation (the backend returns 404 for them).
@@ -347,19 +354,36 @@ export default function DashboardPage() {
     setAlerts(prev => [...newAlerts, ...prev].slice(0, 3));
   };
 
+  // Growth inputs for the tick, held in a ref rather than a dependency. `prediction` refreshes
+  // roughly once per second (growthStage is one of its deps), so adding it to the interval's
+  // dependency array would tear down and recreate the timer every tick and the clock would stall.
+  const growthRef = useRef<{ rate: number; cycleDays: number } | null>(null);
+  useEffect(() => {
+    growthRef.current = prediction
+      ? { rate: prediction.growthRate, cycleDays: prediction.cycleDays }
+      : null;
+  }, [prediction]);
+
   // -- Simulation Loop --
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isRunning) {
       interval = setInterval(() => {
-        setSimulationTime(prev => prev + 1);
+        setSimulationTime(prev => prev + SIM_HOURS_PER_TICK);
 
         // Calculate Stress & Yield (reacts to whichever params source is active)
         calculatePhysics();
 
-        // Grow Plants
-        setGrowthStage(prev => Math.min(100, prev + 0.2));
-      }, 1000); // 1 second = 1 hour simulated
+        // Grow Plants at the engine's rate: crop-aware (cycleDays) and stress-aware (rate).
+        // With no engine answer — backend down, unplanted shelf, unpredictable crop — growth
+        // freezes rather than advancing at some invented rate.
+        setGrowthStage(prev => {
+          const growth = growthRef.current;
+          if (!growth || growth.cycleDays <= 0) return prev;
+          const perTick = (100 * SIM_HOURS_PER_TICK) / (growth.cycleDays * 24);
+          return Math.min(100, prev + perTick * growth.rate);
+        });
+      }, 1000);
     }
     return () => clearInterval(interval);
   }, [isRunning, activeCrop, params.ph, params.temp, params.humidity]); // Added deps for params drift simulation consistency
@@ -395,6 +419,8 @@ export default function DashboardPage() {
       setPrediction({
         harvestQuality: data.harvest_quality,
         stressFactor: data.stress_factor,
+        growthRate: data.growth_rate,
+        cycleDays: data.cycle_days,
         timeToHarvest: data.estimated_days_to_harvest,
         riskLevel: data.risk_level,
         explanation: data.explanation,

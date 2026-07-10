@@ -8,8 +8,8 @@
  *     local metrics when fetch fails, so this is fine.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import DashboardPage from "./page";
 
 const mockPush = vi.fn();
@@ -217,5 +217,123 @@ describe("DashboardPage - Logout", () => {
     render(<DashboardPage />);
     fireEvent.click(screen.getByRole("button", { name: /logout/i }));
     expect(localStorage.getItem("refresh_token")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Growth integration
+// The growth bar must advance at the rate the engine returns — scaled by the
+// crop's cycle length and slowed by stress — and must freeze when the engine
+// has not answered. Before this, it advanced at a flat 0.2%/tick regardless.
+// ---------------------------------------------------------------------------
+describe("DashboardPage - growth advances at the engine's rate", () => {
+  // Mirrors the constants in page.tsx (not exported).
+  const PREDICT_DEBOUNCE_MS = 300;
+
+  // Matches PredictResponse. growth_rate 1.0 = unstressed; cycle_days 45 = lettuce.
+  const predictionBody = (growthRate: number, cycleDays = 45) => ({
+    harvest_quality: 100,
+    stress_factor: (1 - growthRate) * 100,
+    growth_rate: growthRate,
+    cycle_days: cycleDays,
+    estimated_days_to_harvest: 45,
+    risk_level: "low",
+    status: "stable",
+    explanation: "All inputs near optimal",
+    source: "engine",
+  });
+
+  /** Click and let React's scheduler flush — under fake timers it otherwise never does. */
+  const click = async (name: RegExp | string) => {
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  };
+
+  /** Plant lettuce in shelf 0 so `hasPlantedCrop` is true and a prediction is fetched. */
+  const plantLettuce = async () => {
+    await click(/crop1, empty/i);
+    // The dropdown entry's accessible name is "lettuceLettuce" — the <img alt> runs straight
+    // into the label with no separator — so match on a substring, not the visible text.
+    await click(/lettuce/i);
+  };
+
+  const tick = async (times: number) => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000 * times);
+    });
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("advances the clock by SIM_HOURS_PER_TICK (6) simulated hours per tick", async () => {
+    render(<DashboardPage />);
+    await click(/simulate/i);
+    await tick(1);
+    expect(screen.getByText(/6 hours/i)).toBeInTheDocument();
+  });
+
+  it("grows an unstressed lettuce at the crop's cycle rate", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(1.0) });
+    render(<DashboardPage />);
+    await plantLettuce();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS);
+    });
+
+    await click(/simulate/i);
+    await tick(10);
+
+    // perTick = (100 * 6) / (45 * 24) = 0.5555…%  →  10 ticks = 5.55%, floored to 5.
+    expect(screen.getByText(/Seedling \(5%\)/i)).toBeInTheDocument();
+  });
+
+  it("grows a stressed plant more slowly than an unstressed one", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(0.5) });
+    render(<DashboardPage />);
+    await plantLettuce();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS);
+    });
+
+    await click(/simulate/i);
+    await tick(20);
+
+    // Half the rate → 20 × 0.2777% = 5.55%, floored to 5. Deliberately 20 ticks, not 10:
+    // at 10 ticks this lands on 2%, which the old flat 0.2%/tick code also produced.
+    expect(screen.getByText(/Seedling \(5%\)/i)).toBeInTheDocument();
+  });
+
+  it("does not grow a plant at growth_rate 0", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(0.0) });
+    render(<DashboardPage />);
+    await plantLettuce();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS);
+    });
+
+    await click(/simulate/i);
+    await tick(20);
+
+    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument();
+  });
+
+  it("freezes growth when the backend gives no prediction", async () => {
+    // Default beforeEach mock is { ok: false }, so `prediction` stays null. The bar must
+    // not advance at some invented rate — a backend outage should be visible, not silent.
+    render(<DashboardPage />);
+    await click(/simulate/i);
+    await tick(20);
+
+    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument();
+    // …but the clock keeps running, so the freeze is distinguishable from a stalled timer.
+    expect(screen.getByText(/120 hours/i)).toBeInTheDocument();
   });
 });
