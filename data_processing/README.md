@@ -30,8 +30,8 @@ dates/lifecycle stay real. Daily is only ever an optional *training view*. (Plan
 | 1 | `step_01_consolidate/` | 7 raw files × 6 teams → `artifacts/01_master.parquet` | ☑ **Done** (286,854 × 129) |
 | 2 | `step_02_clean_fill/` | `01_master` → `artifacts/02_clean.parquet` | ☑ **Done** (286,854 × 124) |
 | 3 | `step_03_features/` | `02_clean` → `artifacts/03_features.parquet` | ☑ **Done** (286,854 × 61) |
-| 4 | `step_04_labels/` | `03_features` → `artifacts/04_training_table.parquet` | ☑ **Done** (286,854 × 68) |
-| 5 | `step_05_train/` | `04_training_table` → `artifacts/05_model.pkl` + `metrics.json` | ☐ Not started |
+| 4 | `step_04_labels/` | `03_features` → `04_training_table.parquet` (full, audit) → `finalize.py` → `artifacts/04_training_final.parquet` (slim, train) | ☑ **Done** (68-col full + **14-col slim**) |
+| 5 | `step_05_train/` | `04_training_final` (slim) → `artifacts/05_model.pkl` + `metrics.json` | ☐ Not started |
 | 6 | `step_06_serve/` | master + model → app `data/*.csv` + wired `predict()` | ☐ Not started |
 
 Update the ☐/☑ here **and** in each step's README as you finish.
@@ -40,6 +40,13 @@ Update the ☐/☑ here **and** in each step's README as you finish.
 
 Intermediates live in `artifacts/` (git-ignored — bulky). Naming: `NN_<name>.parquet`.
 Final small deliverable (HydroSim-schema CSV) is written to the app's `../data/` in step 6.
+
+**Two Step-4 tables — don't confuse them:**
+- `04_training_table.parquet` (68 cols) — **full/audit**. Keeps every raw + engineered
+  column; needed to *build* the labels and to cross-check in `verify.py`. Not for training.
+- `04_training_final.parquet` (14 cols) — **slim/train**. Only the servable feature set +
+  trained targets, renamed to serve-contract names (`finalize.py`). **Step 5 trains on this.**
+  Training on the full table would be train–serve skew (columns the engine can't supply live).
 
 ## Environment (Windows-first, matches repo convention)
 
