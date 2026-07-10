@@ -1,22 +1,27 @@
 """Simulation prediction routes.
 
-``POST /api/sim/predict`` returns an AI-style yield/stress prediction for the
-current environment state. v1 is data-driven: it serves the precomputed
-``predicted_yield_score`` / ``stress_score`` / ``risk_level`` from the local
-synthetic dataset via a nearest-row lookup. A trained ML model can replace the
-lookup later without changing this request/response contract.
+``POST /api/sim/predict`` returns a yield/stress prediction for the current
+environment state, computed live by ``app.sim.engine``. A trained ML model can
+replace the yield computation later without changing this request/response
+contract. The synthetic dataset is consulted only for ``cycle_length_days``.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.sim.engine import classify, compute_stress, optimal_targets, predict_yield
+from app.sim.engine import (
+    classify,
+    compute_growth_rate,
+    compute_stress,
+    optimal_targets,
+    predict_yield,
+)
 from app.sim.dataset import cycle_length_days
 from app.utils.logger import logger_setup
 
 router = APIRouter(prefix="/api/sim", tags=["simulation"])
 log = logger_setup()
 
-# Environment fields used for the nearest-row distance and the explanation.
+# Environment fields ranked in the explanation.
 # label -> (request attr, human unit)
 _DRIVERS = (
     ("pH", "ph", ""),
@@ -39,6 +44,8 @@ class PredictRequest(BaseModel):
 class PredictResponse(BaseModel):
     harvest_quality: float = Field(..., description="Estimated harvest quality, 0-100 %")
     stress_factor: float = Field(..., description="Estimated stress, 0-100")
+    growth_rate: float = Field(..., description="Growth speed multiplier, 0-1 (1 = unstressed)")
+    cycle_days: float = Field(..., description="Full grow-cycle length for the crop, in days")
     estimated_days_to_harvest: float
     risk_level: str
     status: str
@@ -97,6 +104,8 @@ async def predict(req: PredictRequest) -> PredictResponse:
     stress = compute_stress(env, req.crop_type)          # 0–100, weighted normalized deviation
     harvest_quality = predict_yield(stress)              # clamp(100 - 1.15*stress, 0, 100)
     risk_level, status = classify(stress)
+    # Ask the engine rather than re-deriving 1 - stress/100 here: one definition of the formula.
+    growth_rate = compute_growth_rate(env, req.crop_type)
 
     # Time-to-harvest still uses the CSV-derived cycle length (kept as a reference input, not the
     # live yield source). Dataset missing -> 503, same as before.
@@ -114,6 +123,8 @@ async def predict(req: PredictRequest) -> PredictResponse:
     response = PredictResponse(
         harvest_quality=round(harvest_quality, 1),
         stress_factor=round(stress, 1),
+        growth_rate=round(growth_rate, 4),
+        cycle_days=cycle,
         estimated_days_to_harvest=round(max(0.0, remaining), 1),
         risk_level=risk_level,
         status=status,
