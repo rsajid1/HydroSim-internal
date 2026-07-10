@@ -102,3 +102,58 @@ def test_predict_cycle_days_is_crop_specific(client):
     ).json()
     assert lettuce["cycle_days"] == 45.0
     assert tomato["cycle_days"] == 120.0
+
+
+# --- Explanation + status honesty (the two bugs seen live: EC ignored, wrecked field "stable") ---
+
+# EC maxed out (target 1.2, tol 1.0 -> 4.0 saturates), every other field exactly on target.
+EC_WRECKED_LETTUCE = {
+    "crop_type": "lettuce",
+    "ph": 6.0, "ec": 4.0, "air_temperature_c": 20.0,
+    "humidity_percent": 60.0, "co2_ppm": 800.0,
+}
+
+# pH maxed out (target 6.0, tol 1.0 -> 8.0 saturates) and nothing else off.
+PH_WRECKED_LETTUCE = {
+    "crop_type": "lettuce",
+    "ph": 8.0, "ec": 1.2, "air_temperature_c": 20.0,
+    "humidity_percent": 60.0, "co2_ppm": 800.0,
+}
+
+
+def test_explanation_names_ec_when_ec_is_wrecked(client):
+    # Regression: _DRIVERS used to omit EC, so a lethal EC read "All inputs near optimal".
+    body = client.post("/api/sim/predict", json=EC_WRECKED_LETTUCE).json()
+    assert "EC" in body["explanation"]
+    assert "near optimal" not in body["explanation"]
+
+
+def test_saturated_field_is_never_reported_stable(client):
+    # pH 8.0 alone gives stress ~27, below classify()'s 30 for "warning" — but a maxed-out
+    # field must not read "stable". The router floors status/risk on saturation.
+    body = client.post("/api/sim/predict", json=PH_WRECKED_LETTUCE).json()
+    assert body["stress_factor"] < 30           # aggregate really is under the classify threshold
+    assert body["status"] != "stable"
+    assert body["risk_level"] != "low"
+    assert "pH" in body["explanation"]
+
+
+def test_explanation_ranks_by_weighted_contribution_not_raw_diff(client):
+    # pH 0.7 off (0.7 * weight 18 = 12.6) outranks humidity 30 off (saturated, 1.0 * weight 10 = 10),
+    # even though humidity's RAW deviation (30) dwarfs pH's (0.7). The old raw-diff ranking got this
+    # backwards and would have blamed humidity.
+    payload = {
+        "crop_type": "lettuce",
+        "ph": 6.7, "ec": 1.2, "air_temperature_c": 20.0,
+        "humidity_percent": 90.0, "co2_ppm": 800.0,
+    }
+    body = client.post("/api/sim/predict", json=payload).json()
+    assert "pH" in body["explanation"]
+    assert "Humidity" not in body["explanation"]
+
+
+def test_all_on_target_still_reads_stable_and_near_optimal(client):
+    body = client.post("/api/sim/predict", json=ZERO_STRESS_LETTUCE).json()
+    assert body["stress_factor"] == 0.0
+    assert body["status"] == "stable"
+    assert "near optimal" in body["explanation"]
