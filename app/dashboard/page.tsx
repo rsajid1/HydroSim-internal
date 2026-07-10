@@ -77,6 +77,7 @@ interface Prediction {
   harvestQuality: number;
   stressFactor: number;
   growthRate: number;   // 0-1 speed multiplier from the engine; 1 = unstressed
+  healthRate: number;   // signed per-sim-hour change in plant health; integrated over ticks
   cycleDays: number;    // full grow-cycle length for the crop
   timeToHarvest: number;
   riskLevel: string;
@@ -281,6 +282,8 @@ export default function DashboardPage() {
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [simulationTime, setSimulationTime] = useState<number>(0); // In simulated hours
   const [growthStage, setGrowthStage] = useState<number>(0); // 0 to 100%
+  const [health, setHealth] = useState<number>(1); // plant vigor 0-1; accumulates the memory of stress
+  const [plantDead, setPlantDead] = useState<boolean>(false); // absorbing state: health hit 0, no recovery
   const [alerts, setAlerts] = useState<Alert[]>([]);
 
   // Environmental Parameters (State + Controls)
@@ -354,15 +357,21 @@ export default function DashboardPage() {
     setAlerts(prev => [...newAlerts, ...prev].slice(0, 3));
   };
 
-  // Growth inputs for the tick, held in a ref rather than a dependency. `prediction` refreshes
-  // roughly once per second (growthStage is one of its deps), so adding it to the interval's
-  // dependency array would tear down and recreate the timer every tick and the clock would stall.
-  const growthRef = useRef<{ rate: number; cycleDays: number } | null>(null);
+  // Tick inputs held in refs rather than dependencies. `prediction` refreshes roughly once
+  // per second (growthStage is one of its deps), so adding it to the interval's dependency
+  // array would tear down and recreate the timer every tick and the clock would stall.
+  const growthRef = useRef<{ rate: number; cycleDays: number; healthRate: number } | null>(null);
   useEffect(() => {
     growthRef.current = prediction
-      ? { rate: prediction.growthRate, cycleDays: prediction.cycleDays }
+      ? { rate: prediction.growthRate, cycleDays: prediction.cycleDays, healthRate: prediction.healthRate }
       : null;
   }, [prediction]);
+
+  // Current health + death latch, mirrored to refs so the tick can read them without being deps.
+  const healthRef = useRef<number>(1);
+  useEffect(() => { healthRef.current = health; }, [health]);
+  const plantDeadRef = useRef<boolean>(false);
+  useEffect(() => { plantDeadRef.current = plantDead; }, [plantDead]);
 
   // -- Simulation Loop --
   useEffect(() => {
@@ -374,15 +383,30 @@ export default function DashboardPage() {
         // Calculate Stress & Yield (reacts to whichever params source is active)
         calculatePhysics();
 
-        // Grow Plants at the engine's rate: crop-aware (cycleDays) and stress-aware (rate).
-        // With no engine answer — backend down, unplanted shelf, unpredictable crop — growth
-        // freezes rather than advancing at some invented rate.
-        setGrowthStage(prev => {
-          const growth = growthRef.current;
-          if (!growth || growth.cycleDays <= 0) return prev;
-          const perTick = (100 * SIM_HOURS_PER_TICK) / (growth.cycleDays * 24);
-          return Math.min(100, prev + perTick * growth.rate);
-        });
+        // Advance plant health first (the stateful "memory"): integrate the engine's per-hour
+        // health rate over this tick and clamp to [0, 1]. With no engine answer — backend down,
+        // unplanted shelf, unpredictable crop — health and growth both freeze.
+        // A dead plant stays dead — health and growth are frozen until reset/replant.
+        const g = growthRef.current;
+        if (g && !plantDeadRef.current) {
+          const nextHealth = Math.max(0, Math.min(1, healthRef.current + g.healthRate * SIM_HOURS_PER_TICK));
+          healthRef.current = nextHealth;   // update synchronously so back-to-back ticks integrate correctly
+          setHealth(nextHealth);
+
+          if (nextHealth <= 0) {
+            // Health reached zero: the plant is dead. Latch it — sustained stress is not survivable,
+            // and restoring good conditions afterward must NOT bring it back to life.
+            plantDeadRef.current = true;
+            setPlantDead(true);
+          }
+
+          // Grow at the engine's rate, gated by BOTH current conditions (rate) and accumulated
+          // health: a plant recovering from past stress grows slowly even once conditions are good.
+          if (g.cycleDays > 0) {
+            const perTick = (100 * SIM_HOURS_PER_TICK) / (g.cycleDays * 24);
+            setGrowthStage(prev => Math.min(100, prev + perTick * g.rate * nextHealth));
+          }
+        }
       }, 1000);
     }
     return () => clearInterval(interval);
@@ -420,6 +444,7 @@ export default function DashboardPage() {
         harvestQuality: data.harvest_quality,
         stressFactor: data.stress_factor,
         growthRate: data.growth_rate,
+        healthRate: data.health_rate,
         cycleDays: data.cycle_days,
         timeToHarvest: data.estimated_days_to_harvest,
         riskLevel: data.risk_level,
@@ -457,6 +482,8 @@ export default function DashboardPage() {
     setIsRunning(false);
     setSimulationTime(0);
     setGrowthStage(0);
+    setHealth(1);
+    setPlantDead(false);
     setParams({
       ph: activeCrop.optimal.ph,
       ec: activeCrop.optimal.ec,
@@ -750,6 +777,9 @@ export default function DashboardPage() {
                     <Sprout size={14} className="text-green-400" />
                     <span>Growth Stage</span>
                     <span className="text-white font-semibold">{getGrowthLabel(growthStage)} ({Math.floor(growthStage)}%)</span>
+                    <span className={`font-semibold ${plantDead ? 'text-red-500' : health >= 0.7 ? 'text-green-400' : health >= 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
+                      · {plantDead ? 'DEAD' : `Health ${Math.round(health * 100)}%`}
+                    </span>
                   </div>
                   <div className="font-mono text-white">{simulationTime} Hours</div>
                 </div>
@@ -912,7 +942,11 @@ export default function DashboardPage() {
                </div>
 
                {(() => {
-                 const harvestQuality = prediction ? prediction.harvestQuality : metrics.yieldPrediction;
+                 // Discount the engine's instantaneous quality by accumulated health, so damage has a
+                 // lasting yield consequence (a rescued plant doesn't snap back to 100%). predict_yield
+                 // itself is untouched — this penalty lives only in the display, keeping the AGC-validated
+                 // function intact. A dead plant (health 0) yields nothing.
+                 const harvestQuality = prediction ? prediction.harvestQuality * health : metrics.yieldPrediction;
                  const stress = prediction ? prediction.stressFactor : metrics.stressLevel;
                  return (
                    <>

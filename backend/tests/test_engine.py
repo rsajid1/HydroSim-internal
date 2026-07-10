@@ -15,10 +15,12 @@ import pytest
 
 from app.sim.engine import (
     CROP_PROFILES,
+    HEALTH_STRESS_NEUTRAL,
     STRESS_WEIGHTS,
     classify,
     compute_growth_rate,
     compute_stress,
+    health_rate,
     optimal_targets,
     predict_yield,
 )
@@ -297,3 +299,30 @@ def test_full_env_unchanged_by_normalisation():
     env = dict(_LETTUCE_TARGETS)
     env["ph"] = _LETTUCE_TARGETS["ph"] + 1.0
     assert compute_stress(env, "lettuce") == 18
+
+
+# ---------------------------------------------------------------------------
+# Health (vigor) dynamics — the stateful "memory" layer
+# ---------------------------------------------------------------------------
+
+def test_health_recovers_when_unstressed():
+    assert health_rate(0.0) > 0.0
+
+
+def test_health_declines_under_stress():
+    assert health_rate(100.0) < 0.0
+
+
+def test_health_neutral_point_is_zero():
+    assert health_rate(HEALTH_STRESS_NEUTRAL) == pytest.approx(0.0)
+
+
+def test_health_decay_is_faster_than_recovery():
+    """The asymmetry is what makes stress 'stick' — worst decay outpaces best recovery."""
+    assert abs(health_rate(100.0)) > abs(health_rate(0.0))
+
+
+def test_health_rate_monotonic_in_stress():
+    """More stress is never better for health."""
+    rates = [health_rate(s) for s in range(0, 101, 10)]
+    assert rates == sorted(rates, reverse=True)

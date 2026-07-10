@@ -102,3 +102,15 @@ def test_predict_cycle_days_is_crop_specific(client):
     ).json()
     assert lettuce["cycle_days"] == 45.0
     assert tomato["cycle_days"] == 120.0
+
+
+def test_predict_health_rate_positive_when_healthy_negative_when_stressed(client):
+    # The frontend integrates health_rate over ticks: >0 heals, <0 damages.
+    healthy = client.post("/api/sim/predict", json=ZERO_STRESS_LETTUCE).json()
+    stressed = client.post(
+        "/api/sim/predict",
+        json={"crop_type": "lettuce", "ph": 8.0, "ec": 4.0, "air_temperature_c": 40.0,
+              "humidity_percent": 100.0, "co2_ppm": 300.0},
+    ).json()
+    assert healthy["health_rate"] > 0.0
+    assert stressed["health_rate"] < 0.0

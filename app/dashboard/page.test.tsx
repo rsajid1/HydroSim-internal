@@ -231,10 +231,13 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
   const PREDICT_DEBOUNCE_MS = 300;
 
   // Matches PredictResponse. growth_rate 1.0 = unstressed; cycle_days 45 = lettuce.
-  const predictionBody = (growthRate: number, cycleDays = 45) => ({
+  // healthRate defaults to 0 (neutral) so health stays pinned at 1.0 and growth math is
+  // unaffected; the health-specific tests below pass a non-zero rate.
+  const predictionBody = (growthRate: number, cycleDays = 45, healthRate = 0) => ({
     harvest_quality: 100,
     stress_factor: (1 - growthRate) * 100,
     growth_rate: growthRate,
+    health_rate: healthRate,
     cycle_days: cycleDays,
     estimated_days_to_harvest: 45,
     risk_level: "low",
@@ -335,5 +338,85 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
     expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument();
     // …but the clock keeps running, so the freeze is distinguishable from a stalled timer.
     expect(screen.getByText(/120 hours/i)).toBeInTheDocument();
+  });
+
+  it("starts at full health", () => {
+    render(<DashboardPage />);
+    expect(screen.getByText(/Health 100%/i)).toBeInTheDocument();
+  });
+
+  it("loses health over time under a negative health rate", async () => {
+    // -0.01/sim-hour × 6 h/tick = -0.06/tick → 10 ticks ≈ -0.6 → ~40% health.
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(0.5, 45, -0.01) });
+    render(<DashboardPage />);
+    await plantLettuce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS); });
+
+    await click(/simulate/i);
+    await tick(10);
+
+    expect(screen.getByText(/Health 40%/i)).toBeInTheDocument();
+  });
+
+  it("dies when health reaches 0", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(0.2, 45, -0.05) });
+    render(<DashboardPage />);
+    await plantLettuce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS); });
+
+    await click(/simulate/i);
+    await tick(60);   // far more than enough to drive health past 0
+
+    expect(screen.getByText(/DEAD/i)).toBeInTheDocument();
+  });
+
+  it("stays dead even when conditions are restored (death is irreversible)", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(0.2, 45, -0.05) });
+    render(<DashboardPage />);
+    await plantLettuce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS); });
+    await click(/simulate/i);
+    await tick(60);
+    expect(screen.getByText(/DEAD/i)).toBeInTheDocument();
+
+    // Backend now reports perfect conditions with full recovery; a slider move forces the refetch.
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(1.0, 45, 0.05) });
+    await act(async () => {
+      fireEvent.change(screen.getByRole("slider", { name: /acidity/i }), { target: { value: "6" } });
+      await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS);
+    });
+    await tick(30);
+
+    expect(screen.getByText(/DEAD/i)).toBeInTheDocument();   // no resurrection
+  });
+
+  it("reset brings a dead plant back to full health", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(0.2, 45, -0.05) });
+    render(<DashboardPage />);
+    await plantLettuce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS); });
+    await click(/simulate/i);
+    await tick(60);
+    expect(screen.getByText(/DEAD/i)).toBeInTheDocument();
+
+    await click(/reset simulation/i);
+    expect(screen.getByText(/Health 100%/i)).toBeInTheDocument();
+    expect(screen.queryByText(/DEAD/i)).not.toBeInTheDocument();
+  });
+
+  it("accumulated damage suppresses growth — a sick plant grows slower than a healthy one", async () => {
+    // Both have growth_rate 1.0, but the damaged plant's health has decayed, so its growth
+    // (perTick × rate × health) falls behind. This is the memory the whole change is for.
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(1.0, 45, -0.03) });
+    render(<DashboardPage />);
+    await plantLettuce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS); });
+
+    await click(/simulate/i);
+    await tick(10);
+
+    // Healthy (health=1) would reach 5% in 10 ticks; with health bleeding down it is strictly less.
+    expect(screen.queryByText(/Seedling \(5%\)/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Seedling \([0-3]%\)/i)).toBeInTheDocument();
   });
 });
