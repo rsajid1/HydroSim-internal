@@ -9,6 +9,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.sim.engine import (
+    STRESS_WEIGHTS,
+    TOLERANCES,
     classify,
     compute_growth_rate,
     compute_stress,
@@ -22,13 +24,25 @@ from app.utils.logger import logger_setup
 router = APIRouter(prefix="/api/sim", tags=["simulation"])
 log = logger_setup()
 
-# Environment fields ranked in the explanation.
-# label -> (request attr, human unit)
+# The five environment fields the UI sends. Ranked in the explanation and checked for
+# saturation. label -> (request attr, human unit). All five have STRESS_WEIGHTS / TOLERANCES
+# entries in the engine, so the explanation can weight them the same way compute_stress does.
 _DRIVERS = (
     ("pH", "ph", ""),
+    ("EC", "ec", ""),
     ("Temp", "air_temperature_c", "°C"),
     ("Humidity", "humidity_percent", "%"),
+    ("CO₂", "co2_ppm", " ppm"),
 )
+
+# Severity orderings so the router can floor a value without knowing the labels inline.
+_STATUS_ORDER = ("stable", "warning", "critical")
+_RISK_ORDER = ("low", "medium", "high")
+
+
+def _at_least(current: str, floor: str, order: tuple[str, ...]) -> str:
+    """Return whichever of ``current`` / ``floor`` is more severe in ``order``."""
+    return current if order.index(current) >= order.index(floor) else floor
 
 
 class PredictRequest(BaseModel):
@@ -57,32 +71,43 @@ class PredictResponse(BaseModel):
     source: str = "engine"
 
 
-def _build_explanation(req: PredictRequest, risk_level: str) -> str:
-    """One-line summary naming the largest deviation from the crop's optimal."""
+def _ranked_drivers(req: PredictRequest) -> list[dict]:
+    """Each UI field scored by its weighted, normalized stress contribution, worst first.
+
+    ``saturation`` is ``min(1, |value - target| / tolerance)`` — 1.0 means the field is as
+    far off as it can be. ``contribution`` weights that by ``STRESS_WEIGHTS``, so the top
+    entry is the field actually driving the stress score, not just the largest raw deviation
+    across mismatched units (which is what the old raw-diff ranking compared).
+    """
     optimal = optimal_targets(req.crop_type)   # engine normalizes crop + is the single source of truth
-    worst_label = None
-    worst_unit = ""
-    worst_value = 0.0
-    worst_target = 0.0
-    worst_diff = 0.0
+    drivers = []
     for label, col, unit in _DRIVERS:
         target = optimal.get(col)
         if target is None:
             continue
         value = getattr(req, col)
         diff = abs(value - target)
-        if diff > worst_diff:
-            worst_diff, worst_label, worst_unit, worst_value, worst_target = (
-                diff, label, unit, value, target,
-            )
+        saturation = min(1.0, diff / TOLERANCES[col])
+        drivers.append({
+            "label": label, "unit": unit, "value": value, "target": target,
+            "diff": diff, "saturation": saturation,
+            "contribution": saturation * STRESS_WEIGHTS[col],
+        })
+    drivers.sort(key=lambda d: d["contribution"], reverse=True)
+    return drivers
 
+
+def _build_explanation(drivers: list[dict], risk_level: str) -> str:
+    """One-line summary naming the largest *weighted* stress contributor."""
     risk_suffix = f" risk: {risk_level}." if risk_level else ""
-    if worst_label is None or worst_diff < 0.5:
+    top = drivers[0] if drivers else None
+    if top is None or top["contribution"] < 0.5:
         return f"All inputs near optimal — minimal stress;{risk_suffix}"
-    direction = "above" if worst_value > worst_target else "below"
+    maxed = " (maxed out)" if top["saturation"] >= 1.0 else ""
+    direction = "above" if top["value"] > top["target"] else "below"
     return (
-        f"{worst_label} {worst_value:.1f}{worst_unit} is {worst_diff:.1f}{worst_unit} "
-        f"{direction} optimal — main stress driver;{risk_suffix}"
+        f"{top['label']} {top['value']:.1f}{top['unit']} is {top['diff']:.1f}{top['unit']} "
+        f"{direction} optimal{maxed} — main stress driver;{risk_suffix}"
     )
 
 
@@ -113,6 +138,14 @@ async def predict(req: PredictRequest) -> PredictResponse:
     # Per-hour health delta for this stress; the frontend integrates it over ticks (stateful "memory").
     hrate = health_rate(stress)
 
+    # A single fully-saturated field is a destroyed parameter — surface it even when the
+    # aggregate stress hasn't crossed classify()'s threshold (e.g. pH alone maxes at ~27,
+    # below the 30 needed for "warning"). Floor status/risk instead of reporting "stable".
+    drivers = _ranked_drivers(req)
+    if any(d["saturation"] >= 1.0 for d in drivers):
+        status = _at_least(status, "warning", _STATUS_ORDER)
+        risk_level = _at_least(risk_level, "medium", _RISK_ORDER)
+
     # Time-to-harvest still uses the CSV-derived cycle length (kept as a reference input, not the
     # live yield source). Dataset missing -> 503, same as before.
     try:
@@ -135,7 +168,7 @@ async def predict(req: PredictRequest) -> PredictResponse:
         estimated_days_to_harvest=round(max(0.0, remaining), 1),
         risk_level=risk_level,
         status=status,
-        explanation=_build_explanation(req, risk_level),
+        explanation=_build_explanation(drivers, risk_level),
         source="engine",
     )
     log.info(
