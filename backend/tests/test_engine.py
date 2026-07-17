@@ -364,3 +364,17 @@ def test_health_rate_monotonic_in_stress():
     """More stress is never better for health."""
     rates = [health_rate(s) for s in range(0, 101, 10)]
     assert rates == sorted(rates, reverse=True)
+
+
+def test_health_decay_accelerates_with_severity():
+    """Decay is convex (quadratic), so mild stress is tolerated and damage accelerates:
+    the drop over a high-stress interval exceeds the drop over an equal low-stress one."""
+    low = health_rate(50) - health_rate(30)
+    high = health_rate(70) - health_rate(50)
+    assert high < low  # more negative at the high end
+
+
+def test_mild_stress_barely_decays():
+    """A slightly-off plant (just above neutral) should decline far slower than linearly —
+    well under a tenth of the worst-case rate."""
+    assert abs(health_rate(30)) < 0.1 * abs(health_rate(100))

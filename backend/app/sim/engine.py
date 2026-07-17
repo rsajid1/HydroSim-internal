@@ -218,10 +218,16 @@ def health_rate(stress_score: float) -> float:
     ``HEALTH_STRESS_NEUTRAL``. The caller integrates this over ticks and clamps health to
     [0, 1]; the engine stays stateless. Recovery is deliberately slower than decay, so a
     plant carries the memory of sustained stress and takes time to bounce back.
+
+    Decay is **quadratic** in how far stress exceeds neutral: mild stress is largely
+    tolerated (a slightly-off plant declines very slowly), while damage accelerates as
+    conditions worsen, reaching full ``HEALTH_DECAY_PER_HOUR`` at stress 100. This matches
+    how plants shrug off small deviations but fail quickly under severe ones — and avoids
+    a mildly-suboptimal plant visibly wasting away.
     """
     if stress_score > HEALTH_STRESS_NEUTRAL:
-        span = 100.0 - HEALTH_STRESS_NEUTRAL
-        return -HEALTH_DECAY_PER_HOUR * (stress_score - HEALTH_STRESS_NEUTRAL) / span
+        frac = (stress_score - HEALTH_STRESS_NEUTRAL) / (100.0 - HEALTH_STRESS_NEUTRAL)
+        return -HEALTH_DECAY_PER_HOUR * frac * frac
     span = HEALTH_STRESS_NEUTRAL
     return HEALTH_RECOVERY_PER_HOUR * (HEALTH_STRESS_NEUTRAL - stress_score) / span
 
