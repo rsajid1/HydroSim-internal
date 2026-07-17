@@ -946,8 +946,10 @@ export default function DashboardPage() {
                  // Discount the engine's instantaneous quality by accumulated health, so damage has a
                  // lasting yield consequence (a rescued plant doesn't snap back to 100%). predict_yield
                  // itself is untouched — this penalty lives only in the display, keeping the AGC-validated
-                 // function intact. A dead plant (health 0) yields nothing.
-                 const harvestQuality = prediction ? prediction.harvestQuality * health : metrics.yieldPrediction;
+                 // function intact. sqrt softens the discount in the mid-range (a 55%-health plant keeps
+                 // ~74% of its yield, not 55%) so "mildly off on everything" isn't unduly punishing, while
+                 // still going to 0 when the plant is actually dead (health 0 → yields nothing).
+                 const harvestQuality = prediction ? prediction.harvestQuality * Math.sqrt(health) : metrics.yieldPrediction;
                  const stress = prediction ? prediction.stressFactor : metrics.stressLevel;
                  return (
                    <>
