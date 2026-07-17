@@ -182,6 +182,17 @@ grid and asserts these invariants so a future constant change that produces nons
   instantaneous within-model stress; the health/death mechanic carries the severity.
 - Tolerances are **symmetric**, so the model does not capture crop-specific asymmetry (lettuce
   tolerates cool better than heat; high CO₂ is harmless while low CO₂ is not).
+- **Health has no equilibrium floor.** Any stress above the neutral point decays health monotonically
+  toward 0, so sustained *mild* stress (e.g. two parameters moderately off, stress ~35) eventually
+  kills the plant if run well past harvest — ~54 sim-days vs a 45-day cycle, so within a normal cycle
+  it survives to harvest at reduced quality. A real plant would settle at a reduced but stable vigour.
+  A stress-dependent equilibrium (health relaxes toward a floor, only severe conditions reach 0) is
+  future work.
+- **Health is fully reversible — no permanent damage.** A plant that nearly died recovers all the way
+  to 100% once conditions are restored; there is no injury cap or lost-growth penalty. Pedagogically
+  this is a reasonable teaching message ("fix the environment and the crop recovers"), but a real plant
+  that was severely stressed does not fully bounce back. A recovery cap that ratchets down with
+  accumulated damage is future work.
 
 ## 9. Where to change things
 
