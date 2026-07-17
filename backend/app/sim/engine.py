@@ -259,7 +259,11 @@ def health_stress(
         if field not in env:
             continue
         ratio = abs(env[field] - targets[field]) / (TOLERANCES[field] * factor)
-        worst_excess = max(worst_excess, ratio - 1.0)
+        # Clamp per-field excess to 1.0 (i.e. 2x tolerance). Otherwise a field whose tolerance is
+        # narrow relative to its slider range (EC: tol 1.0, range 0.5-4.0) reaches a huge excess and
+        # a single maxed field kills as fast as an all-wrecked plant. Capping makes every field's
+        # worst case comparable and always less severe than a fully-wrecked environment.
+        worst_excess = max(worst_excess, min(1.0, ratio - 1.0))
     return min(100.0, base + max(0.0, worst_excess) * HEALTH_LIEBIG_SCALE)
 
 
