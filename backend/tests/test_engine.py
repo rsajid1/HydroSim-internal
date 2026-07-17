@@ -302,6 +302,44 @@ def test_full_env_unchanged_by_normalisation():
 
 
 # ---------------------------------------------------------------------------
+# System differentiation — DWC buffers deviations vs the NFT baseline
+# ---------------------------------------------------------------------------
+
+# One field off target so there is stress to modulate.
+_OFF_TARGET = dict(_LETTUCE_TARGETS)
+_OFF_TARGET["ph"] = _LETTUCE_TARGETS["ph"] + 0.8
+
+
+def test_dwc_is_more_forgiving_than_nft():
+    assert compute_stress(_OFF_TARGET, "lettuce", system="dwc") < \
+        compute_stress(_OFF_TARGET, "lettuce", system="nft")
+
+
+def test_nft_equals_baseline_no_system():
+    # NFT is the 1.0 baseline, so passing it must match omitting system entirely.
+    assert compute_stress(_OFF_TARGET, "lettuce", system="nft") == \
+        compute_stress(_OFF_TARGET, "lettuce")
+
+
+def test_unknown_system_falls_back_to_baseline():
+    assert compute_stress(_OFF_TARGET, "lettuce", system="aeroponics") == \
+        compute_stress(_OFF_TARGET, "lettuce")
+    assert compute_stress(_OFF_TARGET, "lettuce", system=None) == \
+        compute_stress(_OFF_TARGET, "lettuce")
+
+
+def test_system_is_case_insensitive():
+    assert compute_stress(_OFF_TARGET, "lettuce", system="DWC") == \
+        compute_stress(_OFF_TARGET, "lettuce", system="dwc")
+
+
+def test_growth_rate_inherits_system_buffering():
+    # Same off-target env grows faster under DWC (less stress) than NFT.
+    assert compute_growth_rate(_OFF_TARGET, "lettuce", system="dwc") > \
+        compute_growth_rate(_OFF_TARGET, "lettuce", system="nft")
+
+
+# ---------------------------------------------------------------------------
 # Health (vigor) dynamics — the stateful "memory" layer
 # ---------------------------------------------------------------------------
 

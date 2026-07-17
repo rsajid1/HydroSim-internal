@@ -87,11 +87,11 @@ interface Prediction {
 
 // --- Constants ---
 
+// Only NFT and DWC are modeled by the engine (their ids map to SYSTEM_TOLERANCE_FACTORS).
+// DWC's reservoir buffers deviations; NFT is the baseline. Aeroponics/vertical are not modeled yet.
 const SYSTEMS: System[] = [
   { id: 'nft', name: 'Nutrient Film Technique (NFT)', description: 'Continuous flow of nutrient solution over roots.' },
   { id: 'dwc', name: 'Deep Water Culture (DWC)', description: 'Roots suspended in oxygenated nutrient solution.' },
-  { id: 'aeroponics', name: 'Aeroponics', description: 'Roots misted with nutrient solution in air.' },
-  { id: 'vertical', name: 'Vertical Farming', description: 'Stacked layers for space efficiency.' },
 ];
 
 const CROPS: Crop[] = [
@@ -427,6 +427,7 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           crop_type: activeCrop.id, // backend maps "tomatoes" -> "tomato"
+          system_type: activeSystem.id, // nft (baseline) | dwc (buffered)
           growth_percent: growthStage,
           ph: params.ph,
           ec: params.ec,
@@ -475,7 +476,7 @@ export default function DashboardPage() {
     const timer = setTimeout(fetchPrediction, PREDICT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shelfPlants, activeCrop.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStage]);
+  }, [shelfPlants, activeCrop.id, activeSystem.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStage]);
 
   // -- Handlers --
   const handleReset = () => {
