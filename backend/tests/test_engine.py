@@ -21,6 +21,7 @@ from app.sim.engine import (
     compute_growth_rate,
     compute_stress,
     health_rate,
+    health_stress,
     optimal_targets,
     predict_yield,
 )
@@ -378,3 +379,26 @@ def test_mild_stress_barely_decays():
     """A slightly-off plant (just above neutral) should decline far slower than linearly —
     well under a tenth of the worst-case rate."""
     assert abs(health_rate(30)) < 0.1 * abs(health_rate(100))
+
+
+# --- Liebig's law of the minimum: a single catastrophic field drives health ---
+
+def test_field_past_tolerance_raises_health_stress_above_aggregate():
+    # pH 8 (2x its tolerance) — aggregate stress dilutes it to ~27, but health_stress lifts it.
+    env = dict(_LETTUCE_TARGETS)
+    env["ph"] = 8.0
+    assert health_stress(env, "lettuce") > compute_stress(env, "lettuce")
+
+
+def test_field_within_tolerance_leaves_health_stress_at_aggregate():
+    # pH 6.7 is inside tolerance (ratio 0.7) — no Liebig boost, health_stress == aggregate.
+    env = dict(_LETTUCE_TARGETS)
+    env["ph"] = 6.7
+    assert health_stress(env, "lettuce") == compute_stress(env, "lettuce")
+
+
+def test_worse_single_field_gives_more_health_stress():
+    # The further past tolerance, the more health-stress (pH 8 worse than pH 7.5).
+    e75 = dict(_LETTUCE_TARGETS); e75["ph"] = 7.5
+    e80 = dict(_LETTUCE_TARGETS); e80["ph"] = 8.0
+    assert health_stress(e80, "lettuce") > health_stress(e75, "lettuce")

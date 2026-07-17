@@ -15,6 +15,7 @@ from app.sim.engine import (
     compute_growth_rate,
     compute_stress,
     health_rate,
+    health_stress,
     optimal_targets,
     predict_yield,
 )
@@ -138,8 +139,9 @@ async def predict(req: PredictRequest) -> PredictResponse:
     risk_level, status = classify(stress)
     # Ask the engine rather than re-deriving 1 - stress/100 here: one definition of the formula.
     growth_rate = compute_growth_rate(env, req.crop_type, system=req.system_type)
-    # Per-hour health delta for this stress; the frontend integrates it over ticks (stateful "memory").
-    hrate = health_rate(stress)
+    # Health uses health_stress (Liebig): a single field past its tolerance harms survival more
+    # than the diluted aggregate implies. The frontend integrates this rate over ticks.
+    hrate = health_rate(health_stress(env, req.crop_type, system=req.system_type))
 
     # A single fully-saturated field is a destroyed parameter — surface it even when the
     # aggregate stress hasn't crossed classify()'s threshold (e.g. pH alone maxes at ~27,

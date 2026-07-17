@@ -209,6 +209,10 @@ def compute_growth_rate(
 HEALTH_STRESS_NEUTRAL = 15.0           # below this stress the plant heals, above it declines
 HEALTH_DECAY_PER_HOUR = 1.0 / 72.0     # at max stress, full health lost in ~72 sim-hours (3 days)
 HEALTH_RECOVERY_PER_HOUR = 1.0 / 360.0  # recovery ~5x slower than worst-case decay
+# Extra health-stress per unit a single field is pushed PAST its tolerance (Liebig's law of the
+# minimum: survival is limited by the worst factor, not the weighted average). e.g. pH 8 sits at
+# 2x its tolerance -> excess 1.0 -> +40 health-stress on top of the (diluted) aggregate.
+HEALTH_LIEBIG_SCALE = 40.0
 
 
 def health_rate(stress_score: float) -> float:
@@ -230,6 +234,33 @@ def health_rate(stress_score: float) -> float:
         return -HEALTH_DECAY_PER_HOUR * frac * frac
     span = HEALTH_STRESS_NEUTRAL
     return HEALTH_RECOVERY_PER_HOUR * (HEALTH_STRESS_NEUTRAL - stress_score) / span
+
+
+def health_stress(
+    env: dict[str, float],
+    crop: str,
+    stage: str | None = None,
+    system: str | None = None,
+) -> float:
+    """Effective stress for the HEALTH mechanic, applying Liebig's law of the minimum.
+
+    ``compute_stress`` is a weighted average, which dilutes a single catastrophic field:
+    pH 8 alone caps at ~27 because it is one of five inputs. But survival is limited by the
+    *worst* factor — pH lockout is not offset by a perfect temperature. So on top of the
+    aggregate we add ``HEALTH_LIEBIG_SCALE`` per unit that the worst field is pushed *past*
+    its tolerance. Fields within tolerance (ratio <= 1) contribute nothing, so a mildly-off
+    plant is unaffected and only a genuinely maxed-out parameter accelerates decline.
+    """
+    base = compute_stress(env, crop, stage, system)
+    targets = optimal_targets(crop, stage)
+    factor = normalize_system(system)
+    worst_excess = 0.0
+    for field in STRESS_WEIGHTS:
+        if field not in env:
+            continue
+        ratio = abs(env[field] - targets[field]) / (TOLERANCES[field] * factor)
+        worst_excess = max(worst_excess, ratio - 1.0)
+    return min(100.0, base + max(0.0, worst_excess) * HEALTH_LIEBIG_SCALE)
 
 
 def predict_yield(stress: float) -> float:
