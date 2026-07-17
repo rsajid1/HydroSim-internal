@@ -170,6 +170,33 @@ def compute_growth_rate(
     return max(0.0, 1.0 - compute_stress(env, crop, stage) / 100.0)
 
 
+# Health (vigor) dynamics — a stateful layer over the instantaneous stress score.
+# The engine only produces a *rate*; the caller integrates it over ticks and clamps
+# health to [0, 1], so the engine itself stays stateless. Rates are per simulated hour.
+# Asymmetric by design: damage accrues faster than recovery, so sustained stress leaves
+# a lasting deficit — this asymmetry is what makes the plant "remember".
+# Neutral is below the ~27 a single saturated UI field produces (5 fields → present-weight 66),
+# so one wrecked parameter (e.g. pH 8) declines health instead of sitting in the healing band.
+HEALTH_STRESS_NEUTRAL = 15.0           # below this stress the plant heals, above it declines
+HEALTH_DECAY_PER_HOUR = 1.0 / 72.0     # at max stress, full health lost in ~72 sim-hours (3 days)
+HEALTH_RECOVERY_PER_HOUR = 1.0 / 360.0  # recovery ~5x slower than worst-case decay
+
+
+def health_rate(stress_score: float) -> float:
+    """Signed per-sim-hour change in plant health (vigor) for a stress score.
+
+    Negative under stress (damage), positive under good conditions (recovery), zero at
+    ``HEALTH_STRESS_NEUTRAL``. The caller integrates this over ticks and clamps health to
+    [0, 1]; the engine stays stateless. Recovery is deliberately slower than decay, so a
+    plant carries the memory of sustained stress and takes time to bounce back.
+    """
+    if stress_score > HEALTH_STRESS_NEUTRAL:
+        span = 100.0 - HEALTH_STRESS_NEUTRAL
+        return -HEALTH_DECAY_PER_HOUR * (stress_score - HEALTH_STRESS_NEUTRAL) / span
+    span = HEALTH_STRESS_NEUTRAL
+    return HEALTH_RECOVERY_PER_HOUR * (HEALTH_STRESS_NEUTRAL - stress_score) / span
+
+
 def predict_yield(stress: float) -> float:
     """Estimated harvest quality in [0, 100].
 

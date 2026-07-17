@@ -14,6 +14,7 @@ from app.sim.engine import (
     classify,
     compute_growth_rate,
     compute_stress,
+    health_rate,
     optimal_targets,
     predict_yield,
 )
@@ -59,6 +60,9 @@ class PredictResponse(BaseModel):
     harvest_quality: float = Field(..., description="Estimated harvest quality, 0-100 %")
     stress_factor: float = Field(..., description="Estimated stress, 0-100")
     growth_rate: float = Field(..., description="Growth speed multiplier, 0-1 (1 = unstressed)")
+    health_rate: float = Field(
+        ..., description="Signed per-sim-hour change in plant health; caller integrates + clamps to 0-1"
+    )
     cycle_days: float = Field(..., description="Full grow-cycle length for the crop, in days")
     estimated_days_to_harvest: float
     risk_level: str
@@ -131,6 +135,8 @@ async def predict(req: PredictRequest) -> PredictResponse:
     risk_level, status = classify(stress)
     # Ask the engine rather than re-deriving 1 - stress/100 here: one definition of the formula.
     growth_rate = compute_growth_rate(env, req.crop_type)
+    # Per-hour health delta for this stress; the frontend integrates it over ticks (stateful "memory").
+    hrate = health_rate(stress)
 
     # A single fully-saturated field is a destroyed parameter — surface it even when the
     # aggregate stress hasn't crossed classify()'s threshold (e.g. pH alone maxes at ~27,
@@ -157,6 +163,7 @@ async def predict(req: PredictRequest) -> PredictResponse:
         harvest_quality=round(harvest_quality, 1),
         stress_factor=round(stress, 1),
         growth_rate=round(growth_rate, 4),
+        health_rate=round(hrate, 6),
         cycle_days=cycle,
         estimated_days_to_harvest=round(max(0.0, remaining), 1),
         risk_level=risk_level,
