@@ -44,6 +44,14 @@ CROP_PROFILES: dict[str, dict] = {
             "vegetative": (11, 35),
             "harvest_ready": (36, 45),
         },
+        # Per-stage optimal overrides (reasoned agronomic estimates, issue #5). Only the
+        # UI-scored fields that shift by stage are listed; every other field falls back to the
+        # crop-level ``targets`` above via optimal_targets(). stage=None keeps crop-level.
+        "stage_targets": {
+            "seedling":      {"ph": 6.0, "ec": 0.8, "air_temperature_c": 20.0, "humidity_percent": 65.0, "co2_ppm": 700.0},
+            "vegetative":    {"ph": 5.8, "ec": 1.2, "air_temperature_c": 20.0, "humidity_percent": 60.0, "co2_ppm": 800.0},
+            "harvest_ready": {"ph": 5.8, "ec": 1.4, "air_temperature_c": 18.0, "humidity_percent": 60.0, "co2_ppm": 800.0},
+        },
     },
     "tomato": {
         "source_profile": "purdue_greenhouse_tomato_profile",
@@ -63,6 +71,13 @@ CROP_PROFILES: dict[str, dict] = {
             "flowering": (43, 65),
             "fruiting": (66, 95),
             "harvest_ready": (96, 120),
+        },
+        "stage_targets": {
+            "seedling":      {"ph": 6.0, "ec": 2.0, "air_temperature_c": 25.0, "humidity_percent": 75.0, "co2_ppm": 800.0},
+            "vegetative":    {"ph": 6.0, "ec": 2.5, "air_temperature_c": 24.0, "humidity_percent": 70.0, "co2_ppm": 1000.0},
+            "flowering":     {"ph": 6.0, "ec": 3.0, "air_temperature_c": 23.0, "humidity_percent": 65.0, "co2_ppm": 1000.0},
+            "fruiting":      {"ph": 5.8, "ec": 3.5, "air_temperature_c": 23.0, "humidity_percent": 65.0, "co2_ppm": 900.0},
+            "harvest_ready": {"ph": 5.8, "ec": 3.5, "air_temperature_c": 22.0, "humidity_percent": 65.0, "co2_ppm": 800.0},
         },
     },
 }
@@ -125,17 +140,44 @@ SYSTEM_TOLERANCE_FACTORS: dict[str, float] = {
 # ---------------------------------------------------------------------------
 
 def optimal_targets(crop: str, stage: str | None = None) -> dict[str, float]:
-    """Return the per-crop optimal environment targets.
+    """Return the optimal environment targets for a crop, optionally stage-specific.
 
-    ``stage`` is accepted for forward-compat with issue #5 (stage-specific bands);
-    v1 ignores it and returns crop-level targets.
+    Starts from the crop-level ``targets`` and, when ``stage`` names a known growth stage,
+    overlays that stage's overrides from ``stage_targets`` (issue #5). ``stage=None`` — or an
+    unrecognised stage — returns the crop-level targets unchanged, so stage-unaware callers
+    (the dataset generator, the calibration tests) are unaffected.
 
     Raises ``ValueError`` for unknown crops.
     """
     normalized = normalize_crop(crop)
     if normalized not in CROP_PROFILES:
         raise ValueError(f"Unknown crop '{crop}'")
-    return CROP_PROFILES[normalized]["targets"]
+    profile = CROP_PROFILES[normalized]
+    targets = dict(profile["targets"])
+    if stage is not None:
+        targets.update(profile.get("stage_targets", {}).get(stage, {}))
+    return targets
+
+
+def stage_for_progress(crop: str, growth_percent: float | None) -> str | None:
+    """Map a 0-100 growth percent to the crop's stage name via the stage day-ranges.
+
+    Lets the predict endpoint resolve the current stage from ``growth_percent`` alone, so the
+    frontend contract need not carry a stage string. Returns ``None`` when progress is unknown
+    or the crop is unrecognised, so callers fall back to crop-level targets.
+    """
+    if growth_percent is None:
+        return None
+    normalized = normalize_crop(crop)
+    if normalized not in CROP_PROFILES:
+        return None
+    stages = CROP_PROFILES[normalized]["stages"]
+    max_day = max(hi for _lo, hi in stages.values())
+    day = max(0.0, min(100.0, growth_percent)) / 100.0 * max_day
+    for name, (_lo, hi) in stages.items():
+        if day <= hi:
+            return name
+    return next(reversed(stages))
 
 
 def normalize_system(system: str | None) -> float:

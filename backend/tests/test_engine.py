@@ -24,6 +24,7 @@ from app.sim.engine import (
     health_stress,
     optimal_targets,
     predict_yield,
+    stage_for_progress,
 )
 
 # Crop target dicts used as the "ideal" baseline throughout these tests.
@@ -209,11 +210,31 @@ def test_crop_alias_tomatoes_resolves():
     assert optimal_targets("tomatoes") == _TOMATO_TARGETS
 
 
-def test_stage_param_accepted_and_ignored_v1():
-    """stage keyword is accepted but has no effect in v1."""
-    base = compute_stress(_LETTUCE_TARGETS, "lettuce")
-    staged = compute_stress(_LETTUCE_TARGETS, "lettuce", stage="seedling")
-    assert base == staged
+def test_stage_shifts_optimal_targets():
+    """Stage overlays the crop-level target where stage_targets defines one (issue #5)."""
+    crop_level = optimal_targets("tomato")
+    fruiting = optimal_targets("tomato", "fruiting")
+    assert crop_level["ec"] == 2.5
+    assert fruiting["ec"] == 3.5                                     # stage override applied
+    # a field with no stage override falls back to the crop-level value
+    assert fruiting["water_temperature_c"] == crop_level["water_temperature_c"]
+    # env at the stage optimum scores zero; the crop-level optimum no longer does in this stage
+    assert compute_stress(fruiting, "tomato", stage="fruiting") == 0
+    assert compute_stress(crop_level, "tomato", stage="fruiting") > 0
+
+
+def test_unknown_stage_falls_back_to_crop_level():
+    """An unrecognised stage returns the crop-level targets unchanged."""
+    assert optimal_targets("tomato", "no_such_stage") == optimal_targets("tomato")
+
+
+def test_stage_for_progress_maps_percent_to_stage():
+    """growth_percent resolves to the stage whose day-range contains it."""
+    assert stage_for_progress("tomato", 0) == "seedling"
+    assert stage_for_progress("tomato", 45) == "flowering"   # ~day 54 of 120
+    assert stage_for_progress("tomato", 100) == "harvest_ready"
+    assert stage_for_progress("tomato", None) is None
+    assert stage_for_progress("tomatoes", 100) == "harvest_ready"  # alias resolves
 
 
 def test_unknown_crop_raises_value_error():

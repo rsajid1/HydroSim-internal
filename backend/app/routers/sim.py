@@ -18,6 +18,7 @@ from app.sim.engine import (
     health_stress,
     optimal_targets,
     predict_yield,
+    stage_for_progress,
 )
 from app.sim.dataset import cycle_length_days
 from app.utils.logger import logger_setup
@@ -70,10 +71,16 @@ class PredictResponse(BaseModel):
     risk_level: str
     status: str
     explanation: str
+    growth_stage: str | None = Field(
+        None, description="Resolved growth stage the targets were scored against (stage-aware optima)"
+    )
+    optimal: dict[str, float] = Field(
+        default_factory=dict, description="Stage-aware optimal targets for the UI-scored fields"
+    )
     source: str = "engine"
 
 
-def _ranked_drivers(req: PredictRequest) -> list[dict]:
+def _ranked_drivers(req: PredictRequest, stage: str | None = None) -> list[dict]:
     """Each UI field scored by its weighted, normalized stress contribution, worst first.
 
     ``saturation`` is ``min(1, |value - target| / tolerance)`` — 1.0 means the field is as
@@ -81,7 +88,7 @@ def _ranked_drivers(req: PredictRequest) -> list[dict]:
     entry is the field actually driving the stress score, not just the largest raw deviation
     across mismatched units (which is what the old raw-diff ranking compared).
     """
-    optimal = optimal_targets(req.crop_type)   # engine normalizes crop + is the single source of truth
+    optimal = optimal_targets(req.crop_type, stage)   # stage-aware; engine is the single source of truth
     drivers = []
     for label, col, unit in _DRIVERS:
         target = optimal.get(col)
@@ -132,21 +139,27 @@ async def predict(req: PredictRequest) -> PredictResponse:
         "humidity_percent": req.humidity_percent,
         "co2_ppm": req.co2_ppm,
     }
+    # Resolve the current growth stage from progress (issue #5), falling back to any
+    # caller-supplied growth_stage, then to None (crop-level targets). Every score below is
+    # computed against the stage's optima, so a seedling isn't judged by fruiting-stage EC.
+    stage = stage_for_progress(req.crop_type, req.growth_percent) or req.growth_stage
+    targets = optimal_targets(req.crop_type, stage)
+
     # system_type scales tolerances (DWC buffers deviations vs NFT baseline); growth/health/yield
     # all derive from this stress, so they inherit the system effect.
-    stress = compute_stress(env, req.crop_type, system=req.system_type)
+    stress = compute_stress(env, req.crop_type, stage=stage, system=req.system_type)
     harvest_quality = predict_yield(stress)              # clamp(100 - 1.15*stress, 0, 100)
     risk_level, status = classify(stress)
     # Ask the engine rather than re-deriving 1 - stress/100 here: one definition of the formula.
-    growth_rate = compute_growth_rate(env, req.crop_type, system=req.system_type)
+    growth_rate = compute_growth_rate(env, req.crop_type, stage=stage, system=req.system_type)
     # Health uses health_stress (Liebig): a single field past its tolerance harms survival more
     # than the diluted aggregate implies. The frontend integrates this rate over ticks.
-    hrate = health_rate(health_stress(env, req.crop_type, system=req.system_type))
+    hrate = health_rate(health_stress(env, req.crop_type, stage=stage, system=req.system_type))
 
     # A single fully-saturated field is a destroyed parameter — surface it even when the
     # aggregate stress hasn't crossed classify()'s threshold (e.g. pH alone maxes at ~27,
     # below the 30 needed for "warning"). Floor status/risk instead of reporting "stable".
-    drivers = _ranked_drivers(req)
+    drivers = _ranked_drivers(req, stage)
     if any(d["saturation"] >= 1.0 for d in drivers):
         status = _at_least(status, "warning", _STATUS_ORDER)
         risk_level = _at_least(risk_level, "medium", _RISK_ORDER)
@@ -174,12 +187,15 @@ async def predict(req: PredictRequest) -> PredictResponse:
         risk_level=risk_level,
         status=status,
         explanation=_build_explanation(drivers, risk_level),
+        growth_stage=stage,
+        optimal={col: targets[col] for _, col, _ in _DRIVERS if col in targets},
         source="engine",
     )
     log.info(
         "sim_predict",
         crop=req.crop_type,
         system=req.system_type,
+        stage=stage,
         harvest_quality=response.harvest_quality,
         stress_factor=response.stress_factor,
         risk=risk_level,

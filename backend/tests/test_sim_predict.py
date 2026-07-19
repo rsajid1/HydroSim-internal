@@ -25,9 +25,12 @@ POOR_LETTUCE = {
 # Every field on target, including the two IDEAL_LETTUCE leaves at their defaults
 # (ec 1.2 is on target, but co2 defaults to 400 against a target of 800). Only this
 # payload actually produces zero stress.
+# growth_percent 30 of a 45-day lettuce cycle -> day ~13.5 -> the *vegetative* stage, so the
+# zero-stress env must sit on the vegetative optimum (pH 5.8, not the crop-level 6.0) now that
+# scoring is stage-aware (issue #5).
 ZERO_STRESS_LETTUCE = {
     "crop_type": "lettuce",
-    "ph": 6.0,
+    "ph": 5.8,
     "ec": 1.2,
     "air_temperature_c": 20.0,
     "humidity_percent": 60.0,
