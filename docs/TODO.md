@@ -15,17 +15,22 @@ Related docs: [`docs/engine.md`](engine.md) · [`docs/local_sim.md`](local_sim.m
 
 ---
 
-## 1. Keep engine ↔ dashboard constants in sync (single source of truth)
+## 1. Keep engine ↔ dashboard constants in sync (single source of truth) — DONE
 
 The engine's `CROP_PROFILES` and the dashboard's `CROPS[].optimal` are two separate literals with
 no shared config — they can silently drift, and when they do the UI's "Target" / Reset default
 lands off the engine's optimum (a user on-target reads phantom stress).
 
-- [x] **Tomato air-temp 25 vs 26 — RESOLVED.** Engine `CROP_PROFILES` is the source of truth
-      (25.0); the dashboard `CROPS[].optimal.temp` was reconciled 26 → 25, and `sim.py` reads
-      `optimal_targets()` (no separate `_OPTIMALS`).
-- [ ] Sweep the **other** engine targets/limits against the dashboard values and fix any further
-      drift (see the comment above `CROPS` in `app/dashboard/SimulationProvider.tsx`).
+- [x] **Tomato air-temp 25 vs 26 — RESOLVED.** Dashboard `CROPS[].optimal.temp` reconciled 26 → 25
+      to match the engine (`sim.py` reads `optimal_targets()`; no separate `_OPTIMALS`).
+- [x] **CO2 target — RESOLVED.** The CO2 slider hardcoded `optimal={800}` for all crops while the
+      engine scores lettuce 800 / tomato 900. Added `co2` to `OptimalConditions` + `CROPS` (800 /
+      900, matching `CROP_PROFILES`) and wired the slider to `activeCrop.optimal.co2`.
+- [x] **Swept the rest.** ph / ec / temp / humidity / co2 now all match the engine.
+      `water_temperature_c`, `water_level_percent`, `light_hours` are not exposed as UI controls,
+      so the engine's present-weight normalization just omits them — no target to drift.
+- Note: initial/Reset CO2 defaults to 400 ppm (ambient, unenriched) **by design** — a starting
+  condition, not a drift; the slider's Target now correctly reads the crop optimum.
 
 ## 2. Stage-aware targets (issue #5) — reasoned estimates, not data
 
@@ -34,21 +39,18 @@ Engine v1 uses one crop-level target and **ignores** the `stage` argument.
 - [ ] Make `optimal_targets(crop, stage)` actually use `stage`, with per-stage target bands set
       from **published agronomic priors** (same reasoned-estimate tier as the rest of the engine).
 
-## 3. Lettuce profile — published priors only
+## 3. System — engine is the sole live source — VALIDATED (teammate did it)
 
-- [ ] Add `docs/lettuce_priors.md` citing the sources behind the OSU lettuce profile so the
-      engine's lettuce numbers are defensible.
-- [ ] Keep lettuce as a **reasoned-estimate** tier (published sources, no calibration).
+A teammate wired the engine in as the live scorer (via the #47 visualization refactor). What
+validation found:
 
-## 4. System — make the engine the sole live source
-
-The engine already scores `/api/sim/predict`; finish removing the old CSV-replay leftovers so the
-running app no longer touches a dataset at runtime.
-
-- [ ] Retire the runtime CSV replay in `app/dashboard/page.tsx` / `GET /api/dataset` (keep the
-      CSV only as a dev/demo fallback for time-to-harvest, if at all).
-- [ ] Update `docs/local_sim.md` (still describes CSV-lookup v1) and `docs/simulation.md` so they
-      describe the engine as the sole live source (no dataset, no model overlay).
+- [x] **Engine is the sole runtime scorer.** Nothing in `app/`, `components/`, or `lib/` fetches
+      `GET /api/dataset` at runtime — the dashboard drives everything off `POST /api/sim/predict`.
+      The backend consults the synthetic CSV **only** for `cycle_length_days` (time-to-harvest), a
+      reference input, not replay (`backend/app/routers/sim.py:154`).
+- [ ] Remove the now-dead `app/api/dataset/route.ts` (+ `route.test.ts`) — unused at runtime.
+- [ ] Update `docs/local_sim.md` / `docs/simulation.md` to describe the engine as the sole live
+      source (no dataset replay, no model overlay).
 
 ---
 
