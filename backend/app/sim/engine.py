@@ -20,10 +20,12 @@ from app.sim.dataset import normalize_crop
 # Crop-specific target conditions and growth-stage day ranges.
 # Verbatim from the generator script — this is now the canonical copy.
 #
-# Note on tomato air_temperature_c: the generator and this file use 25.0 to keep
-# the seeded CSV byte-identical.  The dashboard (CROPS[].optimal) and _OPTIMALS in
-# sim.py currently show 26.0 — that discrepancy is reconciled when the predict
-# endpoint is wired to this engine (next task).
+# This table is the single source of truth for optimal targets: the predict endpoint reads it
+# via optimal_targets() (sim.py no longer keeps its own _OPTIMALS), and the dashboard's
+# CROPS[].optimal (app/dashboard/SimulationProvider.tsx) mirrors these values. Tomato
+# air_temperature_c is 25.0 here (kept to keep the seeded CSV byte-identical); the dashboard was
+# reconciled from 26.0 -> 25.0 to match. Keep any future change to a target in sync across this
+# table and the dashboard.
 CROP_PROFILES: dict[str, dict] = {
     "lettuce": {
         "source_profile": "osu_hydroponics_lettuce_profile",

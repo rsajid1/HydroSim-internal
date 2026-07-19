@@ -71,9 +71,13 @@ export const SYSTEMS: System[] = [
   { id: 'dwc', name: 'Deep Water Culture (DWC)', description: 'Roots suspended in oxygenated nutrient solution.' },
 ];
 
+// `optimal` MUST match the engine's CROP_PROFILES targets in backend/app/sim/engine.py —
+// that engine is the single source of truth for scoring. If they drift, the UI's "Target"
+// and Reset default land off the engine's optimum, so a user sitting exactly on target still
+// reads phantom stress. (tomato air_temperature_c is 25.0 in the engine, not 26.)
 export const CROPS: Crop[] = [
   { id: 'lettuce', name: 'Lettuce', optimal: { ph: 6.0, ec: 1.2, temp: 20, humidity: 60 } },
-  { id: 'tomatoes', name: 'Tomatoes', optimal: { ph: 6.0, ec: 2.5, temp: 26, humidity: 70 } },
+  { id: 'tomatoes', name: 'Tomatoes', optimal: { ph: 6.0, ec: 2.5, temp: 25, humidity: 70 } },
 ];
 
 // Backend base URL (reused from the DB panel's fetch pattern).
