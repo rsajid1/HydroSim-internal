@@ -1,5 +1,25 @@
 # Changelog
 > Please note, PR links are not available for changes below as they are on private repository or not committed. Changes implemented after May 12, 2026 will include PR links. 
+## 2026-07-18
+
+Weekend build-out of the **`data_processing/` pipeline** — turning the raw Autonomous Greenhouse Challenge (AGC) 2nd-edition cherry-tomato files into one clean, model-ready training table (groundwork for the AI yield/stress model, GitHub issue #33).
+
+### Added
+- **`data_processing/` step pipeline (Steps 1–4)** — a folder-per-step, idempotent pipeline (each with its own `README.md` + script) that consolidates the 7 raw AGC files × 6 teams into one **5-min, real-date master** (`2019-12-16 → 2020-05-30`) and derives the supervised targets:
+  - **Step 1 — consolidate** → `01_master.parquet` (286,854 × 129): join 7 files on the Excel-serial `%time` axis; sparse tables carried causally forward (`merge_asof` backward).
+  - **Step 2 — clean & fill** → `02_clean.parquet` (× 124): range-clip→interpolate on env streams, Feb-2019 production-date typo removed, structural `Cum_trusses` NaN→0, causal fills → **0 missing**.
+  - **Step 3 — features** → `03_features.parquet` (× 61): `days_since_transplant`, `growth_stage` (phenology from observed truss/harvest events), `vpd`, `dli_24h`, `gdd_cum`, rolling 24 h stats, NPK columns.
+  - **Step 4 — labels** → `04_training_table.parquet` (full/audit, × 68): multi-output targets `y_yield_score`, `y_stress_score`, and the 3D-growth passthroughs (`y_plant_height`, `y_stem_thickness`, `y_truss_count`, `y_plant_density`) + `cum_yield`. Calibration check: corr(stress, yield) = −0.68 per-row, −0.66 per-team.
+- **Feature contract + slim training table** — `step_04_labels/finalize.py` projects the 68-col audit table down to `04_training_final.parquet` (**286,854 × 14**): only the features the physics engine can actually supply at inference (`PredictRequest`-bounded), renamed to the serve-contract names, so train and serve match. Prevents train–serve skew (`data_processing/step_05_train/README.md` "Feature contract").
+- **Locked ML feature decisions** (documented in `docs/tomato_ml_plan.md`, `docs/TODO.md`, and the Step-5 README):
+  - Inputs bounded by `PredictRequest`: `ph, ec (= feed irr_EC), air_temperature_c, humidity_percent, co2_ppm, vpd, days_since_transplant` — `ec` is **feed EC** (the controllable), not drain/slab EC.
+  - **`days_since_transplant` is the only lifecycle feature** — not `growth_stage` (train labels it from observed plant events, the engine from fixed calendar day-ranges → same word, different plant) and not `growth_percent` (`Stem_elong`-derived, team-relative → leakage). Feed real days on the AGC `[0, ~166]` axis, don't rescale to the engine's 120-day cycle. The engine keeps computing `growth_stage` for the UI only.
+  - **NPK and light/DLI dropped** from the model/UI (no control or visualization); feed EC is the sole nutrient signal (a documented scope trade-off). Stress stays **engine-owned** in v1; the model would output yield + the 3D growth params.
+- **`docs/TODO.md`** — post-pivot backlog gating any engine re-calibration / ML-overlay wiring behind "train and verify the model first."
+
+### Changed
+- **AI model training (Step 5) shelved for now** — the team is **not** training the ML model at this time. The `data_processing/` pipeline and the training-ready table are kept as a documented record so the work can resume later; the physics engine remains the live scorer for both crops. Steps 5 (train) and 6 (serve) stay `☐ Not started`. GitHub issue #33 is being closed to reflect this pause (the dataset→training-table work is done and recorded).
+
 ## 2026-07-17
 
 The simulation engine grew from a stress/yield scorer into a live, stateful, system-aware model.
