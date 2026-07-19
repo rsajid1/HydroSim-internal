@@ -1,5 +1,26 @@
 # Changelog
 > Please note, PR links are not available for changes below as they are on private repository or not committed. Changes implemented after May 12, 2026 will include PR links. 
+## 2026-07-17
+
+The simulation engine grew from a stress/yield scorer into a live, stateful, system-aware model.
+
+### Added
+- **Live growth dynamics** — pressing Simulate now advances *real* growth. `growth_percent` accumulates each tick at the engine's crop-aware, stress-aware rate (`growth += perTick × growth_rate`) instead of a flat increment, so the growth bar reflects the actual environment and crop cycle. `/api/sim/predict` returns `growth_rate` and `cycle_days`; the dashboard integrates them over ticks (`SIM_HOURS_PER_TICK`) (`backend/app/sim/engine.py`, `backend/app/routers/sim.py`, `app/dashboard/page.tsx`) ([PR #41](https://github.com/rsajid1/HydroSim-internal/pull/41))
+- **Stateful plant health & death** — a `health` (vigour) state accumulates the memory of stress: it declines under stress, recovers more slowly (a lasting deficit), discounts the displayed harvest quality, and latches **DEAD** when it reaches 0 (cleared only by Reset/replant). The engine exposes `health_rate`; the frontend integrates it over ticks (`engine.py`, `app/dashboard/page.tsx`) ([PR #43](https://github.com/rsajid1/HydroSim-internal/pull/43))
+- **Hydroponic system modelling (NFT vs DWC)** — the System Architecture selector now affects the simulation: DWC's reservoir buffers deviations (the same off-target condition yields less stress) versus the NFT baseline, via `SYSTEM_TOLERANCE_FACTORS`. `/api/sim/predict` takes `system_type`; the selector is trimmed to the two modelled systems (aeroponics/vertical removed) ([PR #44](https://github.com/rsajid1/HydroSim-internal/pull/44))
+- **Calibration invariant suite** — `backend/tests/test_calibration.py` sweeps the whole input grid and asserts engine sanity invariants (ideal is perfect, monotonic stress, bounded outputs, life/death ordering with a single-field lethality floor, DWC never harsher than NFT), so a future constant change that breaks sensible behaviour fails CI ([PR #44](https://github.com/rsajid1/HydroSim-internal/pull/44))
+
+### Changed
+- **`/api/sim/predict` explanation & status honesty** — the "main stress driver" is now ranked by weighted stress contribution (not raw deviation across mismatched units), EC and CO₂ are included in the ranking, and a single fully-saturated field is no longer reported `stable` (status/risk are floored on saturation) (`backend/app/routers/sim.py`) ([PR #42](https://github.com/rsajid1/HydroSim-internal/pull/42))
+- **Health-model calibration** (PR #44) — quadratic decay so mild stress is tolerated while damage accelerates toward severe; worst-factor health (Liebig's law of the minimum) so a single catastrophic field drives survival, with the per-field excess capped so no single field is disproportionately lethal; displayed harvest quality softened to `yield × √health`.
+- **Docs** — `docs/simulation.md` rewritten for the engine-driven model (was CSV replay); `docs/local_sim.md` marked partly superseded; `docs/engine.md` gains a calibration-model & limitations section.
+
+### Known limitations / follow-ups
+- The engine is **sanity-calibrated, not data-validated** — no ground-truth dataset exists for the modelled water-culture systems; constants are documented engineering estimates.
+- Health has **no equilibrium floor** (sustained mild stress declines rather than settling) and is **fully reversible** (no permanent-damage cap); tolerances are symmetric. See `docs/engine.md` §8.
+
+---
+
 ## 2026-07-09
 
 ### Changed

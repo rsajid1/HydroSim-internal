@@ -1,13 +1,20 @@
 # Local Simulation — AI Yield & Stress Prediction
 
+> **⚠️ Partly superseded (2026-07).** The parts of this document describing a **dataset lookup**
+> ("nearest-row", replay from the synthetic CSV) are out of date. `POST /api/sim/predict` now computes
+> stress/yield/growth/health live from the deterministic grey-box engine (`backend/app/sim/engine.py`);
+> the synthetic CSV is a calibration/validation artefact, not the prediction source. The request/response
+> **contract** (payload shape, `source` field, fallback behaviour) below is still accurate, plus the
+> response now carries `growth_rate`, `health_rate`, `cycle_days`, and takes `system_type`. For current
+> behaviour see [`docs/simulation.md`](simulation.md) and [`docs/engine.md`](engine.md).
+
 This document explains how the **AI Yield Prediction** panel works end to end: the
-route that was added, how the dashboard talks to the backend, what payloads go in
-and out, and how the prediction is produced from the **local synthetic dataset**
-(no production database involved).
+route that was added, how the dashboard talks to the backend, and what payloads go in
+and out.
 
 > Implements GitHub issue **#8** — "AI yield and stress prediction panel".
-> v1 is **data-driven** (dataset lookup). A trained ML model can replace the lookup
-> later **without changing the request/response contract**.
+> Prediction is now engine-computed (was a dataset lookup in v1). A trained ML model can replace the
+> yield computation later **without changing the request/response contract**.
 
 ---
 
