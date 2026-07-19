@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Activity,
@@ -18,103 +18,19 @@ import {
   Settings,
   LayoutDashboard,
   BookOpen,
-  BarChart3,
   LogOut,
   Database,
   CheckCircle,
   XCircle,
-  Loader
+  Loader,
+  LineChart as LineChartIcon,
 } from 'lucide-react';
+import { useSimulation, SYSTEMS, CROPS } from './SimulationProvider';
 
 /**
  * HydroSim - Interactive Hydroponics & Greenhouse Simulator
  * Converted to Next.js + TypeScript
  */
-
-// --- TypeScript Interfaces ---
-
-interface OptimalConditions {
-  ph: number;
-  ec: number;
-  temp: number;
-  humidity: number;
-}
-
-interface Crop {
-  id: string;
-  name: string;
-  optimal: OptimalConditions;
-}
-
-interface System {
-  id: string;
-  name: string;
-  description: string;
-}
-
-interface SimulationParams {
-  ph: number;
-  ec: number;
-  temp: number;
-  humidity: number;
-  co2: number;
-  flowRate: number;
-}
-
-interface SimulationMetrics {
-  yieldPrediction: number;
-  stressLevel: number;
-  waterLevel: number;
-}
-
-interface Alert {
-  id: string;
-  type: 'critical' | 'warning';
-  msg: string;
-}
-
-interface Prediction {
-  harvestQuality: number;
-  stressFactor: number;
-  growthRate: number;   // 0-1 speed multiplier from the engine; 1 = unstressed
-  healthRate: number;   // signed per-sim-hour change in plant health; integrated over ticks
-  cycleDays: number;    // full grow-cycle length for the crop
-  timeToHarvest: number;
-  riskLevel: string;
-  explanation: string;
-  source: string;
-}
-
-// --- Constants ---
-
-// Only NFT and DWC are modeled by the engine (their ids map to SYSTEM_TOLERANCE_FACTORS).
-// DWC's reservoir buffers deviations; NFT is the baseline. Aeroponics/vertical are not modeled yet.
-const SYSTEMS: System[] = [
-  { id: 'nft', name: 'Nutrient Film Technique (NFT)', description: 'Continuous flow of nutrient solution over roots.' },
-  { id: 'dwc', name: 'Deep Water Culture (DWC)', description: 'Roots suspended in oxygenated nutrient solution.' },
-];
-
-const CROPS: Crop[] = [
-  { id: 'lettuce', name: 'Lettuce', optimal: { ph: 6.0, ec: 1.2, temp: 20, humidity: 60 } },
-  { id: 'herbs', name: 'Herbs (Basil)', optimal: { ph: 6.2, ec: 1.4, temp: 24, humidity: 55 } },
-  { id: 'tomatoes', name: 'Tomatoes', optimal: { ph: 6.0, ec: 2.5, temp: 26, humidity: 70 } },
-  { id: 'cucumbers', name: 'Cucumbers', optimal: { ph: 5.8, ec: 2.0, temp: 25, humidity: 75 } },
-];
-
-// Backend base URL (reused from the DB panel's fetch pattern).
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8001";
-
-// Debounce for the live prediction fetch — coalesces rapid slider drags into one request.
-const PREDICT_DEBOUNCE_MS = 300;
-
-// Simulated hours advanced per 1-second tick. Growth is derived from this and the crop's
-// cycle length, so the clock and the growth bar share one time base. At 6 h/tick a healthy
-// lettuce (45-day cycle) fills in ~3 real minutes and a tomato (120-day) in ~8.
-const SIM_HOURS_PER_TICK = 6;
-
-// UI crop ids that have rows in the local synthetic dataset. Others fall back to
-// the client-side calculation (the backend returns 404 for them).
-const PREDICTABLE_CROPS = new Set(['lettuce', 'tomatoes']);
 
 // --- Helper Component Props ---
 
@@ -276,265 +192,50 @@ export default function DashboardPage() {
     }
   };
 
-  // -- State Management --
-  const [activeSystem, setActiveSystem] = useState<System>(SYSTEMS[0]);
-  const [activeCrop, setActiveCrop] = useState<Crop>(CROPS[0]);
-  const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [simulationTime, setSimulationTime] = useState<number>(0); // In simulated hours
-  const [growthStage, setGrowthStage] = useState<number>(0); // 0 to 100%
-  const [health, setHealth] = useState<number>(1); // plant vigor 0-1; accumulates the memory of stress
-  const [plantDead, setPlantDead] = useState<boolean>(false); // absorbing state: health hit 0, no recovery
-  const [alerts, setAlerts] = useState<Alert[]>([]);
+  // -- Shared simulation state (lives above this page so it survives navigation to
+  // /dashboard/simulation — see app/dashboard/SimulationProvider.tsx) --
+  const sim = useSimulation();
+  const {
+    activeSystem, setActiveSystem,
+    activeCrop, setActiveCrop,
+    isRunning, setIsRunning,
+    simulationTime,
+    growthStageByRow, healthByRow, plantDeadByRow, alerts,
+    params, setParams, metrics,
+    predictionByRow,
+    activeRow, setActiveRow,
+    plants,
+    rows,
+    rowOccupancy,
+    getGrowthLabel,
+    handleReset,
+  } = sim;
 
-  // Environmental Parameters (State + Controls)
-  const [params, setParams] = useState<SimulationParams>({
-    ph: 6.0,
-    ec: 1.2,
-    temp: 22.0,
-    humidity: 60,
-    co2: 400,
-    flowRate: 100
-  });
-
-  // Derived Metrics (Simulated Physics)
-  const [metrics, setMetrics] = useState<SimulationMetrics>({
-    yieldPrediction: 95, // %
-    stressLevel: 0, // %
-    waterLevel: 100, // %
-  });
-
-  // AI prediction from the backend (POST /api/sim/predict). Null when the backend
-  // is unreachable or the crop has no dataset — the AI card then falls back to `metrics`.
-  const [prediction, setPrediction] = useState<Prediction | null>(null);
-
-  // Garden planter UI state
-  const [activeShelf, setActiveShelf] = useState<number>(0);
-  const [shelfPlants, setShelfPlants] = useState<Record<number, ('empty' | 'lettuce' | 'tomato')[]>>({
-    0: Array(9).fill('empty'),
-    1: Array(9).fill('empty'),
-    2: Array(9).fill('empty'),
-  });
-  const [openDropdown, setOpenDropdown] = useState<{ shelf: number; row: number } | null>(null);
+  // Garden planter UI state that's local to this page only (the crop-picker dropdown
+  // and its confirmation toast aren't needed on the chart page).
+  const [openDropdown, setOpenDropdown] = useState<number | null>(null);
   const [cropConfirmation, setCropConfirmation] = useState<string | null>(null);
 
-  const shelves = [
-    { id: 0, name: 'Top Shelf', crops: '' },
-    { id: 1, name: 'Middle Shelf', crops: '' },
-    { id: 2, name: 'Bottom Shelf', crops: '' },
-  ];
-
-  // -- Physics Engine --
-  const calculatePhysics = () => {
-    const optimal = activeCrop.optimal;
-    let totalStress = 0;
-    const newAlerts: Alert[] = [];
-
-    // Check pH
-    const phDiff = Math.abs(params.ph - optimal.ph);
-    if (phDiff > 1.0) {
-      totalStress += 20;
-      newAlerts.push({ id: Date.now() + 'ph', type: 'critical', msg: `pH Critical: ${params.ph.toFixed(1)}` });
-    } else if (phDiff > 0.5) {
-      totalStress += 5;
-      newAlerts.push({ id: Date.now() + 'ph', type: 'warning', msg: `pH unstable` });
-    }
-
-    // Check Temp
-    const tempDiff = Math.abs(params.temp - optimal.temp);
-    if (tempDiff > 5) {
-      totalStress += 15;
-      newAlerts.push({ id: Date.now() + 'temp', type: 'warning', msg: `Temp Deviation` });
-    }
-
-    // Update State
-    setMetrics(prev => ({
-      ...prev,
-      stressLevel: Math.min(100, totalStress),
-      yieldPrediction: Math.max(0, 100 - (totalStress * 1.5))
-    }));
-
-    // Dedup alerts and keep last 3
-    setAlerts(prev => [...newAlerts, ...prev].slice(0, 3));
+  const handlePlanterClick = (row: number) => {
+    setActiveRow(row);
+    setOpenDropdown(prev => (prev === row ? null : row));
   };
 
-  // Tick inputs held in refs rather than dependencies. `prediction` refreshes roughly once
-  // per second (growthStage is one of its deps), so adding it to the interval's dependency
-  // array would tear down and recreate the timer every tick and the clock would stall.
-  const growthRef = useRef<{ rate: number; cycleDays: number; healthRate: number } | null>(null);
-  useEffect(() => {
-    growthRef.current = prediction
-      ? { rate: prediction.growthRate, cycleDays: prediction.cycleDays, healthRate: prediction.healthRate }
-      : null;
-  }, [prediction]);
-
-  // Current health + death latch, mirrored to refs so the tick can read them without being deps.
-  const healthRef = useRef<number>(1);
-  useEffect(() => { healthRef.current = health; }, [health]);
-  const plantDeadRef = useRef<boolean>(false);
-  useEffect(() => { plantDeadRef.current = plantDead; }, [plantDead]);
-
-  // -- Simulation Loop --
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isRunning) {
-      interval = setInterval(() => {
-        setSimulationTime(prev => prev + SIM_HOURS_PER_TICK);
-
-        // Calculate Stress & Yield (reacts to whichever params source is active)
-        calculatePhysics();
-
-        // Advance plant health first (the stateful "memory"): integrate the engine's per-hour
-        // health rate over this tick and clamp to [0, 1]. With no engine answer — backend down,
-        // unplanted shelf, unpredictable crop — health and growth both freeze.
-        // A dead plant stays dead — health and growth are frozen until reset/replant.
-        const g = growthRef.current;
-        if (g && !plantDeadRef.current) {
-          const nextHealth = Math.max(0, Math.min(1, healthRef.current + g.healthRate * SIM_HOURS_PER_TICK));
-          healthRef.current = nextHealth;   // update synchronously so back-to-back ticks integrate correctly
-          setHealth(nextHealth);
-
-          if (nextHealth <= 0) {
-            // Health reached zero: the plant is dead. Latch it — sustained stress is not survivable,
-            // and restoring good conditions afterward must NOT bring it back to life.
-            plantDeadRef.current = true;
-            setPlantDead(true);
-          }
-
-          // Grow at the engine's rate, gated by BOTH current conditions (rate) and accumulated
-          // health: a plant recovering from past stress grows slowly even once conditions are good.
-          if (g.cycleDays > 0) {
-            const perTick = (100 * SIM_HOURS_PER_TICK) / (g.cycleDays * 24);
-            setGrowthStage(prev => Math.min(100, prev + perTick * g.rate * nextHealth));
-          }
-        }
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isRunning, activeCrop, params.ph, params.temp, params.humidity]); // Added deps for params drift simulation consistency
-
-  // -- AI Prediction Fetch --
-  // Calls the backend prediction endpoint with the current environment state.
-  // On any failure (backend down, unknown crop) it clears `prediction` so the AI
-  // card falls back to the client-side `metrics` — the panel never breaks.
-  const fetchPrediction = async () => {
-    if (!PREDICTABLE_CROPS.has(activeCrop.id)) {
-      setPrediction(null);
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/sim/predict`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          crop_type: activeCrop.id, // backend maps "tomatoes" -> "tomato"
-          system_type: activeSystem.id, // nft (baseline) | dwc (buffered)
-          growth_percent: growthStage,
-          ph: params.ph,
-          ec: params.ec,
-          air_temperature_c: params.temp,
-          humidity_percent: params.humidity,
-          co2_ppm: params.co2,
-        }),
-      });
-      if (!res.ok) {
-        setPrediction(null);
-        return;
-      }
-      const data = await res.json();
-      setPrediction({
-        harvestQuality: data.harvest_quality,
-        stressFactor: data.stress_factor,
-        growthRate: data.growth_rate,
-        healthRate: data.health_rate,
-        cycleDays: data.cycle_days,
-        timeToHarvest: data.estimated_days_to_harvest,
-        riskLevel: data.risk_level,
-        explanation: data.explanation,
-        source: data.source,
-      });
-    } catch {
-      setPrediction(null); // graceful fallback to client-side metrics
-    }
-  };
-
-  // Real-time prediction — but only once the scenario is actually live:
-  //   1) a crop is planted in at least one pod,
-  //   2) the simulation is running (Simulate pressed),
-  //   3) the selected crop exists in the local dataset.
-  // While all three hold, it re-fetches on every environment/growth change (manual
-  // slider edits and parameter drift), debounced so a slider drag coalesces into one
-  // request. Otherwise the prediction is cleared so the panel stays idle instead of
-  // reacting before the user has set anything up.
-  useEffect(() => {
-    const hasPlantedCrop = Object.values(shelfPlants).some(
-      rows => rows.some(slot => slot !== 'empty')
-    );
-    if (!hasPlantedCrop || !PREDICTABLE_CROPS.has(activeCrop.id)) {
-      setPrediction(null);
-      return;
-    }
-    const timer = setTimeout(fetchPrediction, PREDICT_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shelfPlants, activeCrop.id, activeSystem.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStage]);
-
-  // -- Handlers --
-  const handleReset = () => {
-    setIsRunning(false);
-    setSimulationTime(0);
-    setGrowthStage(0);
-    setHealth(1);
-    setPlantDead(false);
-    setParams({
-      ph: activeCrop.optimal.ph,
-      ec: activeCrop.optimal.ec,
-      temp: activeCrop.optimal.temp,
-      humidity: activeCrop.optimal.humidity,
-      co2: 400,
-      flowRate: 100
-    });
-    setAlerts([]);
-    setMetrics({ yieldPrediction: 100, stressLevel: 0, waterLevel: 100 });
-    setPrediction(null);
-  };
-
-  const getGrowthLabel = (stage: number): string => {
-    if (stage < 10) return "Seedling";
-    if (stage < 40) return "Vegetative";
-    if (stage < 80) return "Flowering/Fruiting";
-    return "Harvest Ready";
-  };
-
-  const handlePlanterClick = (shelfId: number, row: number) => {
-    if (openDropdown?.shelf === shelfId && openDropdown?.row === row) {
-      setOpenDropdown(null);
-    } else {
-      setOpenDropdown({ shelf: shelfId, row });
-    }
-  };
-
-  const assignCrop = (crop: 'lettuce' | 'tomato', shelfId: number, row: number) => {
-    const currentCrop = shelfPlants[shelfId].find(s => s !== 'empty');
-    const isChange = currentCrop && currentCrop !== crop;
-    setShelfPlants(prev => ({
-      ...prev,
-      [shelfId]: Array(9).fill(crop),
-    }));
+  const assignCrop = (crop: 'lettuce' | 'tomato', row: number) => {
+    const { changed } = sim.assignCrop(crop, row);
     setOpenDropdown(null);
-    if (isChange) {
-      setCropConfirmation('Crop changed — restarting simulation');
-      handleReset();
+    if (changed) {
+      setCropConfirmation('Crop changed — restarting this row');
     } else {
       setCropConfirmation(`${crop.charAt(0).toUpperCase() + crop.slice(1)} added to simulation`);
     }
     setTimeout(() => setCropConfirmation(null), 3000);
   };
 
-  const shelfOccupancy = (shelfId: number) =>
-    shelfPlants[shelfId].filter(slot => slot !== 'empty').length;
-
-  const rowOccupancy = (shelfId: number, row: number) =>
-    shelfPlants[shelfId].slice(row * 3, row * 3 + 3).filter(s => s !== 'empty').length;
+  const handleViewChart = (row: number) => {
+    setActiveRow(row);
+    router.push('/dashboard/simulation');
+  };
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden selection:bg-blue-500/30">
@@ -550,7 +251,6 @@ export default function DashboardPage() {
           <NavItem icon={<LayoutDashboard />} label="Dashboard" active={activeNav === 'dashboard'} onClick={() => setActiveNav('dashboard')} />
           <NavItem icon={<Activity />} label="Simulation" active={activeNav === 'simulation'} onClick={() => setActiveNav('simulation')} />
           <NavItem icon={<Database />} label="Database" active={activeNav === 'database'} onClick={() => setActiveNav('database')} />
-          <NavItem icon={<BarChart3 />} label="Compare Scenarios" active={activeNav === 'compare'} onClick={() => setActiveNav('compare')} />
           <NavItem icon={<BookOpen />} label="Learning Modules" active={activeNav === 'learning'} onClick={() => setActiveNav('learning')} />
           <div className="my-4 border-t border-slate-800"></div>
           <NavItem icon={<Settings />} label="Configuration" active={activeNav === 'config'} onClick={() => setActiveNav('config')} />
@@ -734,14 +434,6 @@ export default function DashboardPage() {
                   onChange={(v) => setParams({...params, ph: v})}
                />
                <ControlSlider
-                  label="Nutrient Conc. (EC)"
-                  icon={<Activity size={14} />}
-                  value={params.ec}
-                  min={0.5} max={4.0} step={0.1}
-                  optimal={activeCrop.optimal.ec}
-                  onChange={(v) => setParams({ ...params, ec: v })}
-               />
-               <ControlSlider
                   label="Temperature (°C)"
                   icon={<Thermometer size={14} />}
                   value={params.temp}
@@ -776,10 +468,10 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between text-xs text-slate-400 uppercase">
                   <div className="flex items-center gap-2">
                     <Sprout size={14} className="text-green-400" />
-                    <span>Growth Stage</span>
-                    <span className="text-white font-semibold">{getGrowthLabel(growthStage)} ({Math.floor(growthStage)}%)</span>
-                    <span className={`font-semibold ${plantDead ? 'text-red-500' : health >= 0.7 ? 'text-green-400' : health >= 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
-                      · {plantDead ? 'DEAD' : `Health ${Math.round(health * 100)}%`}
+                    <span>Growth Stage — {rows[activeRow].name}</span>
+                    <span className="text-white font-semibold">{getGrowthLabel(growthStageByRow[activeRow])} ({Math.floor(growthStageByRow[activeRow])}%)</span>
+                    <span className={`font-semibold ${plantDeadByRow[activeRow] ? 'text-red-500' : healthByRow[activeRow] >= 0.7 ? 'text-green-400' : healthByRow[activeRow] >= 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
+                      · {plantDeadByRow[activeRow] ? 'DEAD' : `Health ${Math.round(healthByRow[activeRow] * 100)}%`}
                     </span>
                   </div>
                   <div className="font-mono text-white">{simulationTime} Hours</div>
@@ -788,29 +480,28 @@ export default function DashboardPage() {
                 <div className="relative flex-1 flex items-center justify-center">
                   <div className="absolute inset-0 bg-grid-pattern opacity-40"></div>
                   <div className="relative w-full max-w-sm space-y-4">
-                    {shelves.map((shelf) => {
-                      const isActive = activeShelf === shelf.id;
+                    {rows.map((row) => {
+                      const isActive = activeRow === row.id;
                       return (
                         <button
-                          key={shelf.id}
-                          onClick={() => setActiveShelf(shelf.id)}
+                          key={row.id}
+                          onClick={() => handlePlanterClick(row.id)}
                           className={`group w-full rounded-xl border transition-all flex flex-col gap-1 px-3 py-3 text-left ${isActive ? 'border-emerald-400 bg-slate-800 shadow-lg shadow-emerald-900/40' : 'border-slate-700 bg-slate-800/60 hover:border-emerald-300/70 hover:bg-slate-800/80'}`}
                           aria-pressed={isActive}
-                          aria-label={`${shelf.name}, ${Math.floor(shelfOccupancy(shelf.id) / 3)} of 3 rows planted`}
+                          aria-label={`${row.name}, ${rowOccupancy(row.id)} of 3 planted`}
                         >
                           <div className="flex items-center justify-between">
                             <div>
-                              <div className="text-sm font-semibold text-white">{shelf.name}</div>
-                              <div className="text-[11px] text-slate-400">{shelf.crops}</div>
+                              <div className="text-sm font-semibold text-white">{row.name}</div>
                             </div>
                             <div className={`text-[11px] px-2 py-1 rounded-full font-mono ${isActive ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/50' : 'bg-slate-900 text-slate-300 border border-slate-700'}`}>
-                              {Math.floor(shelfOccupancy(shelf.id) / 3)}/3 rows
+                              {rowOccupancy(row.id)}/3
                             </div>
                           </div>
                           <div className="relative mt-2 h-5 rounded-lg overflow-hidden bg-slate-950 border border-slate-700">
                             <div className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-slate-700/40 to-slate-700/10"></div>
                             <div className="absolute inset-0 flex items-center px-2">
-                              <div className={`h-2 rounded-full transition-all ${isActive ? 'bg-emerald-400/80' : 'bg-slate-600/70'}`} style={{ width: `${(shelfOccupancy(shelf.id) / 9) * 100}%` }}></div>
+                              <div className={`h-2 rounded-full transition-all ${isActive ? 'bg-emerald-400/80' : 'bg-slate-600/70'}`} style={{ width: `${(rowOccupancy(row.id) / 3) * 100}%` }}></div>
                             </div>
                           </div>
                         </button>
@@ -823,21 +514,21 @@ export default function DashboardPage() {
               <div className="lg:w-1/2 border-t border-slate-800 lg:border-l lg:border-t-0 bg-slate-950/60 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <div className="text-xs uppercase text-slate-400">Shelf Detail</div>
-                    <div className="text-sm font-semibold text-white">{shelves[activeShelf].name}</div>
+                    <div className="text-xs uppercase text-slate-400">Planter Detail</div>
+                    <div className="text-sm font-semibold text-white">3x3 Grow Bed</div>
                   </div>
                   <div className="text-[11px] font-mono text-slate-400">Click a planter to assign a crop</div>
                 </div>
 
                 <div className="rounded-xl border border-slate-200/60 bg-[#f6f7ee] p-4 shadow-inner space-y-3">
                   {[0, 1, 2].map(row => {
-                    const isOpen = openDropdown?.shelf === activeShelf && openDropdown?.row === row;
-                    const rowSlots = shelfPlants[activeShelf].slice(row * 3, row * 3 + 3);
+                    const isOpen = openDropdown === row;
+                    const rowSlots = plants.slice(row * 3, row * 3 + 3);
                     return (
                       <div key={row} className="relative">
                         <div className="flex items-center justify-between mb-1.5 px-0.5">
-                          <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Row {row + 1}</span>
-                          <span className="text-[10px] font-mono text-slate-500">{rowOccupancy(activeShelf, row)}/3</span>
+                          <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">{rows[row].name}</span>
+                          <span className="text-[10px] font-mono text-slate-500">{rowOccupancy(row)}/3</span>
                         </div>
                         <div className="grid grid-cols-3 gap-3">
                           {rowSlots.map((slot, colIdx) => {
@@ -846,7 +537,7 @@ export default function DashboardPage() {
                             return (
                               <div key={planterId} id={planterId} className="relative flex flex-col items-center">
                                 <button
-                                  onClick={() => handlePlanterClick(activeShelf, row)}
+                                  onClick={() => handlePlanterClick(row)}
                                   className="relative aspect-square w-full rounded-full transition-transform duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 flex items-center justify-center"
                                   aria-label={`${planterId}, ${slot === 'empty' ? 'empty' : slot}`}
                                   style={{
@@ -876,22 +567,30 @@ export default function DashboardPage() {
                             id="cropSelect"
                             className="absolute right-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden text-xs w-32"
                           >
-                            <div className="px-3 py-1.5 text-[10px] text-slate-400 border-b border-slate-100 uppercase tracking-wide">Apply to all 9 planters</div>
+                            <div className="px-3 py-1.5 text-[10px] text-slate-400 border-b border-slate-100 uppercase tracking-wide">Apply to this row</div>
                             <button
-                              onClick={() => assignCrop('lettuce', activeShelf, row)}
+                              onClick={() => assignCrop('lettuce', row)}
                               className="flex items-center gap-2 w-full px-3 py-2 hover:bg-green-50 text-slate-700"
                             >
                               <img src="/lettuce.svg" alt="lettuce" className="w-4 h-4" />
                               Lettuce
                             </button>
                             <button
-                              onClick={() => assignCrop('tomato', activeShelf, row)}
+                              onClick={() => assignCrop('tomato', row)}
                               className="flex items-center gap-2 w-full px-3 py-2 hover:bg-red-50 text-slate-700"
                             >
                               <img src="/tomato.svg" alt="tomato" className="w-4 h-4" />
                               Tomato
                             </button>
                           </div>
+                        )}
+                        {rowSlots.some(s => s !== 'empty') && (
+                          <button
+                            onClick={() => handleViewChart(row)}
+                            className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-950/40 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:border-emerald-400/50 hover:text-emerald-200 transition-colors"
+                          >
+                            <LineChartIcon size={14} /> View Chart
+                          </button>
                         )}
                       </div>
                     );
@@ -936,10 +635,10 @@ export default function DashboardPage() {
                <MetricGauge label="Humidity" value={params.humidity} unit="%" min={0} max={100} optimal={activeCrop.optimal.humidity} />
             </Card>
 
-            <Card title="AI Yield Prediction" className="relative overflow-hidden">
+            <Card title={`AI Yield Prediction — ${rows[activeRow].name}`} className="relative overflow-hidden">
                {/* Source Badge — reflects whether the number came from the dataset endpoint or the local fallback */}
                <div className="absolute top-3 right-3 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">
-                  <Cpu size={10} /> {prediction ? 'Engine' : 'Local'}
+                  <Cpu size={10} /> {predictionByRow[activeRow] ? 'Engine' : 'Local'}
                </div>
 
                {(() => {
@@ -949,8 +648,10 @@ export default function DashboardPage() {
                  // function intact. sqrt softens the discount in the mid-range (a 55%-health plant keeps
                  // ~74% of its yield, not 55%) so "mildly off on everything" isn't unduly punishing, while
                  // still going to 0 when the plant is actually dead (health 0 → yields nothing).
-                 const harvestQuality = prediction ? prediction.harvestQuality * Math.sqrt(health) : metrics.yieldPrediction;
-                 const stress = prediction ? prediction.stressFactor : metrics.stressLevel;
+                 const rowPrediction = predictionByRow[activeRow];
+                 const rowHealth = healthByRow[activeRow];
+                 const harvestQuality = rowPrediction ? rowPrediction.harvestQuality * Math.sqrt(rowHealth) : metrics.yieldPrediction;
+                 const stress = rowPrediction ? rowPrediction.stressFactor : metrics.stressLevel;
                  return (
                    <>
                      <div className="text-center py-4">
@@ -959,10 +660,10 @@ export default function DashboardPage() {
                      </div>
 
                      <div className="space-y-2 mt-2">
-                        {prediction && (
+                        {rowPrediction && (
                            <div className="flex justify-between text-xs">
                               <span className="text-slate-500">Est. Time to Harvest</span>
-                              <span className="text-slate-200 font-mono">{prediction.timeToHarvest.toFixed(0)} days</span>
+                              <span className="text-slate-200 font-mono">{rowPrediction.timeToHarvest.toFixed(0)} days</span>
                            </div>
                         )}
                         <div className="flex justify-between text-xs">
@@ -973,8 +674,8 @@ export default function DashboardPage() {
                            <div className="h-full bg-red-500 stress-bar" style={{ ['--stress-width' as any]: `${stress}%` }}></div>
                         </div>
                         <p className="text-[10px] text-slate-500 mt-2 leading-tight">
-                           {prediction
-                             ? prediction.explanation
+                           {rowPrediction
+                             ? rowPrediction.explanation
                              : 'Prediction based on current pH stability and temperature consistency over the last 12 simulated hours.'}
                         </p>
                      </div>
