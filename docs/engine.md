@@ -155,8 +155,48 @@ Until this calibration is complete, the parameter *values* should be presented a
 **reasoned initial estimates**, while the *formulae and structure* are the stable,
 defensible core.
 
-## 8. Where to change things
+## 8. Calibration model & sanity invariants
+
+The engine is grey-box: the constants are engineering estimates (no ground-truth dataset exists
+for our water-culture systems — AGC is substrate tomato, and no lettuce set pairs our inputs with
+yield). It is therefore calibrated for **internal consistency and agronomic plausibility**, not
+statistical fit. A permanent guard, `backend/tests/test_calibration.py`, sweeps the whole UI input
+grid and asserts these invariants so a future constant change that produces nonsense fails CI:
+
+- **Ideal is perfect** — all fields on target → 0 stress, 100 yield, full growth, plant heals.
+- **Monotonic** — moving any field away from target never lowers stress.
+- **Bounded** — stress/yield 0–100, growth 0–1, health rate within its decay/recovery limits.
+- **Life/death ordering** — ideal never dies; a fully-wrecked plant dies in ~3 sim-days; and **no
+  single field, at any slider value, kills faster than ~5 sim-days** (a lone bad parameter must
+  never be as lethal as an entirely-wrecked environment).
+- **System ordering** — DWC is never harsher than NFT (its reservoir buffers deviations).
+
+**Health vs. survival — two accepted limitations to note in the write-up:**
+- *Liebig's law of the minimum:* survival is driven by the **worst single field** (`health_stress`),
+  not the weighted-average stress, because a catastrophic parameter (e.g. pH lockout) is not offset
+  by good conditions elsewhere. The per-field "excess past tolerance" is **capped at 1× tolerance**
+  so a field with a narrow tolerance relative to its slider range (EC) is not disproportionately
+  lethal — without the cap, EC 4.0 killed as fast as an all-wrecked plant.
+- *Yield saturates while survival does not:* stress caps each field's contribution, so e.g. pH 4 and
+  pH 5 read the same harvest quality, yet they die at very different rates. Yield reflects
+  instantaneous within-model stress; the health/death mechanic carries the severity.
+- Tolerances are **symmetric**, so the model does not capture crop-specific asymmetry (lettuce
+  tolerates cool better than heat; high CO₂ is harmless while low CO₂ is not).
+- **Health has no equilibrium floor.** Any stress above the neutral point decays health monotonically
+  toward 0, so sustained *mild* stress (e.g. two parameters moderately off, stress ~35) eventually
+  kills the plant if run well past harvest — ~54 sim-days vs a 45-day cycle, so within a normal cycle
+  it survives to harvest at reduced quality. A real plant would settle at a reduced but stable vigour.
+  A stress-dependent equilibrium (health relaxes toward a floor, only severe conditions reach 0) is
+  future work.
+- **Health is fully reversible — no permanent damage.** A plant that nearly died recovers all the way
+  to 100% once conditions are restored; there is no injury cap or lost-growth penalty. Pedagogically
+  this is a reasonable teaching message ("fix the environment and the crop recovers"), but a real plant
+  that was severely stressed does not fully bounce back. A recovery cap that ratchets down with
+  accumulated damage is future work.
+
+## 9. Where to change things
 
 - Parameters and formulae: `backend/app/sim/engine.py` (canonical source).
 - The dataset generator imports from the engine, so the two cannot drift.
-- Tests locking in the behavior: `backend/tests/test_engine.py`.
+- Tests locking in the behavior: `backend/tests/test_engine.py`; calibration invariants:
+  `backend/tests/test_calibration.py`.

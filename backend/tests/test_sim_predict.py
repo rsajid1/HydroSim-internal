@@ -104,6 +104,40 @@ def test_predict_cycle_days_is_crop_specific(client):
     assert tomato["cycle_days"] == 120.0
 
 
+def test_predict_dwc_buffers_stress_vs_nft(client):
+    # Same off-target payload: DWC's reservoir buffers the deviation, so lower stress /
+    # higher growth than NFT. This is the system selector actually affecting the sim.
+    off = {"crop_type": "lettuce", "ph": 6.8, "ec": 1.2, "air_temperature_c": 20.0,
+           "humidity_percent": 60.0, "co2_ppm": 800.0}
+    nft = client.post("/api/sim/predict", json={**off, "system_type": "nft"}).json()
+    dwc = client.post("/api/sim/predict", json={**off, "system_type": "dwc"}).json()
+    assert dwc["stress_factor"] < nft["stress_factor"]
+    assert dwc["growth_rate"] > nft["growth_rate"]
+
+
+def test_predict_default_system_is_nft_baseline(client):
+    # Omitting system_type must match explicit nft (the 1.0 baseline) — no behavior change
+    # for callers that don't send it.
+    off = {"crop_type": "lettuce", "ph": 6.8, "ec": 1.2, "air_temperature_c": 20.0,
+           "humidity_percent": 60.0, "co2_ppm": 800.0}
+    default = client.post("/api/sim/predict", json=off).json()
+    nft = client.post("/api/sim/predict", json={**off, "system_type": "nft"}).json()
+    assert default["stress_factor"] == nft["stress_factor"]
+
+
+def test_predict_single_wrecked_field_decays_faster_than_mild_multi(client):
+    # pH 8 (one field far past tolerance) must damage health much faster than a plant that is
+    # only mildly off on several fields — even though their aggregate stress is similar.
+    ph8 = client.post("/api/sim/predict", json={
+        "crop_type": "lettuce", "ph": 8.0, "ec": 1.2, "air_temperature_c": 20.0,
+        "humidity_percent": 60.0, "co2_ppm": 800.0}).json()
+    mild = client.post("/api/sim/predict", json={
+        "crop_type": "lettuce", "ph": 6.7, "ec": 1.2, "air_temperature_c": 22.0,
+        "humidity_percent": 60.0, "co2_ppm": 400.0}).json()
+    assert ph8["health_rate"] < mild["health_rate"]        # more negative = decays faster
+    assert ph8["health_rate"] < 0                          # pH 8 genuinely declines
+
+
 def test_predict_health_rate_positive_when_healthy_negative_when_stressed(client):
     # The frontend integrates health_rate over ticks: >0 heals, <0 damages.
     healthy = client.post("/api/sim/predict", json=ZERO_STRESS_LETTUCE).json()

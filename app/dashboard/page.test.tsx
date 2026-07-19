@@ -73,12 +73,12 @@ describe("DashboardPage - initial render", () => {
     expect(select.value).toBe("nft");
   });
 
-  it("system selector has all four hydroponic systems", () => {
-    // Same as above — guards against a system being accidentally dropped.
+  it("system selector offers the two modeled systems (NFT, DWC)", () => {
+    // Only NFT and DWC are modeled by the engine; aeroponics/vertical were removed.
     render(<DashboardPage />);
     const select = screen.getByRole("combobox", { name: /system architecture/i }) as HTMLSelectElement;
     const options = Array.from(select.options).map((o) => o.value);
-    expect(options).toEqual(["nft", "dwc", "aeroponics", "vertical"]);
+    expect(options).toEqual(["nft", "dwc"]);
   });
 
   it("all four environment sliders are present", () => {

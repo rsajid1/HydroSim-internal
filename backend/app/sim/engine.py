@@ -107,6 +107,16 @@ LIMITS: dict[str, tuple[float, float]] = {
     "light_hours": (8.0, 20.0),
 }
 
+# Per-system multiplier on TOLERANCES: how forgiving the root zone is to a deviation.
+# DWC's large water reservoir buffers pH / EC / temperature swings, so the same deviation
+# produces less stress than in NFT's thin, low-buffer film. NFT = 1.0 is the baseline (the
+# tolerances above already reflect a continuous-flow water culture). The *direction* is
+# agronomically sound; the exact 1.3 is a tunable engineering estimate (thesis limitation).
+SYSTEM_TOLERANCE_FACTORS: dict[str, float] = {
+    "nft": 1.0,
+    "dwc": 1.3,
+}
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -126,10 +136,22 @@ def optimal_targets(crop: str, stage: str | None = None) -> dict[str, float]:
     return CROP_PROFILES[normalized]["targets"]
 
 
+def normalize_system(system: str | None) -> float:
+    """Return the tolerance multiplier for a hydroponic system.
+
+    Case-insensitive. Any unknown / missing value falls back to 1.0 (NFT baseline),
+    so a stray system string can never raise — it just behaves as the reference system.
+    """
+    if system is None:
+        return 1.0
+    return SYSTEM_TOLERANCE_FACTORS.get(system.lower(), 1.0)
+
+
 def compute_stress(
     env: dict[str, float],
     crop: str,
     stage: str | None = None,
+    system: str | None = None,
 ) -> float:
     """Weighted normalised-deviation stress score in [0, 100].
 
@@ -142,14 +164,19 @@ def compute_stress(
     ``STRESS_WEIGHTS`` sums to exactly 100, so when all eight fields are present
     the divisor is 100 and this reduces to the generator's ``calculate_stress``
     formula unchanged — the seeded CSV stays byte-identical.
+
+    ``system`` scales the tolerances by ``SYSTEM_TOLERANCE_FACTORS`` (DWC's reservoir
+    buffers deviations → less stress). ``system=None`` gives factor 1.0, so callers that
+    omit it — including the dataset generator — are unaffected and the CSV stays identical.
     """
     targets = optimal_targets(crop, stage)
+    factor = normalize_system(system)
     total = 0.0
     present_weight = 0.0
     for field, weight in STRESS_WEIGHTS.items():
         if field not in env:
             continue
-        diff_ratio = abs(env[field] - targets[field]) / TOLERANCES[field]
+        diff_ratio = abs(env[field] - targets[field]) / (TOLERANCES[field] * factor)
         total += min(1.0, diff_ratio) * weight
         present_weight += weight
     if present_weight == 0.0:
@@ -161,13 +188,15 @@ def compute_growth_rate(
     env: dict[str, float],
     crop: str,
     stage: str | None = None,
+    system: str | None = None,
 ) -> float:
     """Per-tick growth multiplier in [0, 1].
 
     Returns 1.0 under ideal conditions and approaches 0.0 under severe stress.
-    Simple and transparent — tweakable by non-ML experts (issue #9).
+    Simple and transparent — tweakable by non-ML experts (issue #9). ``system`` is
+    forwarded to ``compute_stress`` so growth inherits the system's buffering.
     """
-    return max(0.0, 1.0 - compute_stress(env, crop, stage) / 100.0)
+    return max(0.0, 1.0 - compute_stress(env, crop, stage, system) / 100.0)
 
 
 # Health (vigor) dynamics — a stateful layer over the instantaneous stress score.
@@ -180,6 +209,10 @@ def compute_growth_rate(
 HEALTH_STRESS_NEUTRAL = 15.0           # below this stress the plant heals, above it declines
 HEALTH_DECAY_PER_HOUR = 1.0 / 72.0     # at max stress, full health lost in ~72 sim-hours (3 days)
 HEALTH_RECOVERY_PER_HOUR = 1.0 / 360.0  # recovery ~5x slower than worst-case decay
+# Extra health-stress per unit a single field is pushed PAST its tolerance (Liebig's law of the
+# minimum: survival is limited by the worst factor, not the weighted average). e.g. pH 8 sits at
+# 2x its tolerance -> excess 1.0 -> +40 health-stress on top of the (diluted) aggregate.
+HEALTH_LIEBIG_SCALE = 40.0
 
 
 def health_rate(stress_score: float) -> float:
@@ -189,12 +222,49 @@ def health_rate(stress_score: float) -> float:
     ``HEALTH_STRESS_NEUTRAL``. The caller integrates this over ticks and clamps health to
     [0, 1]; the engine stays stateless. Recovery is deliberately slower than decay, so a
     plant carries the memory of sustained stress and takes time to bounce back.
+
+    Decay is **quadratic** in how far stress exceeds neutral: mild stress is largely
+    tolerated (a slightly-off plant declines very slowly), while damage accelerates as
+    conditions worsen, reaching full ``HEALTH_DECAY_PER_HOUR`` at stress 100. This matches
+    how plants shrug off small deviations but fail quickly under severe ones — and avoids
+    a mildly-suboptimal plant visibly wasting away.
     """
     if stress_score > HEALTH_STRESS_NEUTRAL:
-        span = 100.0 - HEALTH_STRESS_NEUTRAL
-        return -HEALTH_DECAY_PER_HOUR * (stress_score - HEALTH_STRESS_NEUTRAL) / span
+        frac = (stress_score - HEALTH_STRESS_NEUTRAL) / (100.0 - HEALTH_STRESS_NEUTRAL)
+        return -HEALTH_DECAY_PER_HOUR * frac * frac
     span = HEALTH_STRESS_NEUTRAL
     return HEALTH_RECOVERY_PER_HOUR * (HEALTH_STRESS_NEUTRAL - stress_score) / span
+
+
+def health_stress(
+    env: dict[str, float],
+    crop: str,
+    stage: str | None = None,
+    system: str | None = None,
+) -> float:
+    """Effective stress for the HEALTH mechanic, applying Liebig's law of the minimum.
+
+    ``compute_stress`` is a weighted average, which dilutes a single catastrophic field:
+    pH 8 alone caps at ~27 because it is one of five inputs. But survival is limited by the
+    *worst* factor — pH lockout is not offset by a perfect temperature. So on top of the
+    aggregate we add ``HEALTH_LIEBIG_SCALE`` per unit that the worst field is pushed *past*
+    its tolerance. Fields within tolerance (ratio <= 1) contribute nothing, so a mildly-off
+    plant is unaffected and only a genuinely maxed-out parameter accelerates decline.
+    """
+    base = compute_stress(env, crop, stage, system)
+    targets = optimal_targets(crop, stage)
+    factor = normalize_system(system)
+    worst_excess = 0.0
+    for field in STRESS_WEIGHTS:
+        if field not in env:
+            continue
+        ratio = abs(env[field] - targets[field]) / (TOLERANCES[field] * factor)
+        # Clamp per-field excess to 1.0 (i.e. 2x tolerance). Otherwise a field whose tolerance is
+        # narrow relative to its slider range (EC: tol 1.0, range 0.5-4.0) reaches a huge excess and
+        # a single maxed field kills as fast as an all-wrecked plant. Capping makes every field's
+        # worst case comparable and always less severe than a fully-wrecked environment.
+        worst_excess = max(worst_excess, min(1.0, ratio - 1.0))
+    return min(100.0, base + max(0.0, worst_excess) * HEALTH_LIEBIG_SCALE)
 
 
 def predict_yield(stress: float) -> float:

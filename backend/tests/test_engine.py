@@ -21,6 +21,7 @@ from app.sim.engine import (
     compute_growth_rate,
     compute_stress,
     health_rate,
+    health_stress,
     optimal_targets,
     predict_yield,
 )
@@ -302,6 +303,44 @@ def test_full_env_unchanged_by_normalisation():
 
 
 # ---------------------------------------------------------------------------
+# System differentiation — DWC buffers deviations vs the NFT baseline
+# ---------------------------------------------------------------------------
+
+# One field off target so there is stress to modulate.
+_OFF_TARGET = dict(_LETTUCE_TARGETS)
+_OFF_TARGET["ph"] = _LETTUCE_TARGETS["ph"] + 0.8
+
+
+def test_dwc_is_more_forgiving_than_nft():
+    assert compute_stress(_OFF_TARGET, "lettuce", system="dwc") < \
+        compute_stress(_OFF_TARGET, "lettuce", system="nft")
+
+
+def test_nft_equals_baseline_no_system():
+    # NFT is the 1.0 baseline, so passing it must match omitting system entirely.
+    assert compute_stress(_OFF_TARGET, "lettuce", system="nft") == \
+        compute_stress(_OFF_TARGET, "lettuce")
+
+
+def test_unknown_system_falls_back_to_baseline():
+    assert compute_stress(_OFF_TARGET, "lettuce", system="aeroponics") == \
+        compute_stress(_OFF_TARGET, "lettuce")
+    assert compute_stress(_OFF_TARGET, "lettuce", system=None) == \
+        compute_stress(_OFF_TARGET, "lettuce")
+
+
+def test_system_is_case_insensitive():
+    assert compute_stress(_OFF_TARGET, "lettuce", system="DWC") == \
+        compute_stress(_OFF_TARGET, "lettuce", system="dwc")
+
+
+def test_growth_rate_inherits_system_buffering():
+    # Same off-target env grows faster under DWC (less stress) than NFT.
+    assert compute_growth_rate(_OFF_TARGET, "lettuce", system="dwc") > \
+        compute_growth_rate(_OFF_TARGET, "lettuce", system="nft")
+
+
+# ---------------------------------------------------------------------------
 # Health (vigor) dynamics — the stateful "memory" layer
 # ---------------------------------------------------------------------------
 
@@ -326,3 +365,40 @@ def test_health_rate_monotonic_in_stress():
     """More stress is never better for health."""
     rates = [health_rate(s) for s in range(0, 101, 10)]
     assert rates == sorted(rates, reverse=True)
+
+
+def test_health_decay_accelerates_with_severity():
+    """Decay is convex (quadratic), so mild stress is tolerated and damage accelerates:
+    the drop over a high-stress interval exceeds the drop over an equal low-stress one."""
+    low = health_rate(50) - health_rate(30)
+    high = health_rate(70) - health_rate(50)
+    assert high < low  # more negative at the high end
+
+
+def test_mild_stress_barely_decays():
+    """A slightly-off plant (just above neutral) should decline far slower than linearly —
+    well under a tenth of the worst-case rate."""
+    assert abs(health_rate(30)) < 0.1 * abs(health_rate(100))
+
+
+# --- Liebig's law of the minimum: a single catastrophic field drives health ---
+
+def test_field_past_tolerance_raises_health_stress_above_aggregate():
+    # pH 8 (2x its tolerance) — aggregate stress dilutes it to ~27, but health_stress lifts it.
+    env = dict(_LETTUCE_TARGETS)
+    env["ph"] = 8.0
+    assert health_stress(env, "lettuce") > compute_stress(env, "lettuce")
+
+
+def test_field_within_tolerance_leaves_health_stress_at_aggregate():
+    # pH 6.7 is inside tolerance (ratio 0.7) — no Liebig boost, health_stress == aggregate.
+    env = dict(_LETTUCE_TARGETS)
+    env["ph"] = 6.7
+    assert health_stress(env, "lettuce") == compute_stress(env, "lettuce")
+
+
+def test_worse_single_field_gives_more_health_stress():
+    # The further past tolerance, the more health-stress (pH 8 worse than pH 7.5).
+    e75 = dict(_LETTUCE_TARGETS); e75["ph"] = 7.5
+    e80 = dict(_LETTUCE_TARGETS); e80["ph"] = 8.0
+    assert health_stress(e80, "lettuce") > health_stress(e75, "lettuce")

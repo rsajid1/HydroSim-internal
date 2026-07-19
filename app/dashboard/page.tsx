@@ -87,11 +87,11 @@ interface Prediction {
 
 // --- Constants ---
 
+// Only NFT and DWC are modeled by the engine (their ids map to SYSTEM_TOLERANCE_FACTORS).
+// DWC's reservoir buffers deviations; NFT is the baseline. Aeroponics/vertical are not modeled yet.
 const SYSTEMS: System[] = [
   { id: 'nft', name: 'Nutrient Film Technique (NFT)', description: 'Continuous flow of nutrient solution over roots.' },
   { id: 'dwc', name: 'Deep Water Culture (DWC)', description: 'Roots suspended in oxygenated nutrient solution.' },
-  { id: 'aeroponics', name: 'Aeroponics', description: 'Roots misted with nutrient solution in air.' },
-  { id: 'vertical', name: 'Vertical Farming', description: 'Stacked layers for space efficiency.' },
 ];
 
 const CROPS: Crop[] = [
@@ -427,6 +427,7 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           crop_type: activeCrop.id, // backend maps "tomatoes" -> "tomato"
+          system_type: activeSystem.id, // nft (baseline) | dwc (buffered)
           growth_percent: growthStage,
           ph: params.ph,
           ec: params.ec,
@@ -475,7 +476,7 @@ export default function DashboardPage() {
     const timer = setTimeout(fetchPrediction, PREDICT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shelfPlants, activeCrop.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStage]);
+  }, [shelfPlants, activeCrop.id, activeSystem.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStage]);
 
   // -- Handlers --
   const handleReset = () => {
@@ -945,8 +946,10 @@ export default function DashboardPage() {
                  // Discount the engine's instantaneous quality by accumulated health, so damage has a
                  // lasting yield consequence (a rescued plant doesn't snap back to 100%). predict_yield
                  // itself is untouched — this penalty lives only in the display, keeping the AGC-validated
-                 // function intact. A dead plant (health 0) yields nothing.
-                 const harvestQuality = prediction ? prediction.harvestQuality * health : metrics.yieldPrediction;
+                 // function intact. sqrt softens the discount in the mid-range (a 55%-health plant keeps
+                 // ~74% of its yield, not 55%) so "mildly off on everything" isn't unduly punishing, while
+                 // still going to 0 when the plant is actually dead (health 0 → yields nothing).
+                 const harvestQuality = prediction ? prediction.harvestQuality * Math.sqrt(health) : metrics.yieldPrediction;
                  const stress = prediction ? prediction.stressFactor : metrics.stressLevel;
                  return (
                    <>

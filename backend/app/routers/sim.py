@@ -15,6 +15,7 @@ from app.sim.engine import (
     compute_growth_rate,
     compute_stress,
     health_rate,
+    health_stress,
     optimal_targets,
     predict_yield,
 )
@@ -47,6 +48,7 @@ def _at_least(current: str, floor: str, order: tuple[str, ...]) -> str:
 
 class PredictRequest(BaseModel):
     crop_type: str
+    system_type: str = "nft"   # nft (baseline) | dwc (buffered); unknown -> nft
     growth_stage: str | None = None
     growth_percent: float | None = None
     ph: float = 6.0
@@ -130,13 +132,16 @@ async def predict(req: PredictRequest) -> PredictResponse:
         "humidity_percent": req.humidity_percent,
         "co2_ppm": req.co2_ppm,
     }
-    stress = compute_stress(env, req.crop_type)          # 0–100, weighted normalized deviation
+    # system_type scales tolerances (DWC buffers deviations vs NFT baseline); growth/health/yield
+    # all derive from this stress, so they inherit the system effect.
+    stress = compute_stress(env, req.crop_type, system=req.system_type)
     harvest_quality = predict_yield(stress)              # clamp(100 - 1.15*stress, 0, 100)
     risk_level, status = classify(stress)
     # Ask the engine rather than re-deriving 1 - stress/100 here: one definition of the formula.
-    growth_rate = compute_growth_rate(env, req.crop_type)
-    # Per-hour health delta for this stress; the frontend integrates it over ticks (stateful "memory").
-    hrate = health_rate(stress)
+    growth_rate = compute_growth_rate(env, req.crop_type, system=req.system_type)
+    # Health uses health_stress (Liebig): a single field past its tolerance harms survival more
+    # than the diluted aggregate implies. The frontend integrates this rate over ticks.
+    hrate = health_rate(health_stress(env, req.crop_type, system=req.system_type))
 
     # A single fully-saturated field is a destroyed parameter — surface it even when the
     # aggregate stress hasn't crossed classify()'s threshold (e.g. pH alone maxes at ~27,
@@ -174,6 +179,7 @@ async def predict(req: PredictRequest) -> PredictResponse:
     log.info(
         "sim_predict",
         crop=req.crop_type,
+        system=req.system_type,
         harvest_quality=response.harvest_quality,
         stress_factor=response.stress_factor,
         risk=risk_level,
