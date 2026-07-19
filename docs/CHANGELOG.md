@@ -1,5 +1,28 @@
 # Changelog
 > Please note, PR links are not available for changes below as they are on private repository or not committed. Changes implemented after May 12, 2026 will include PR links. 
+## 2026-07-19
+
+Engine and dashboard reconciled to a single source of truth, made **stage-aware**, and the environment controls fixed. Work on the `feature_cleanups` branch; ML training and dataset integration were dropped — the AGC dataset + `data_processing/` pipeline now stand only as a research/thesis attachment (see `docs/TODO.md`).
+
+### Added
+- **Stage-aware optimal targets** (issue #5) — `optimal_targets(crop, stage)` overlays per-stage `stage_targets` (tomato 5 stages, lettuce 3: EC ramps with maturity, humidity drops at flowering, temps ease toward harvest). `stage_for_progress()` resolves the stage from `growth_percent` server-side (no request-contract change); `POST /api/sim/predict` now returns `growth_stage` + a stage-aware `optimal` map. Dashboard sliders/gauges shift their "Target" as the plant grows (`backend/app/sim/engine.py`, `backend/app/routers/sim.py`, `app/dashboard/page.tsx`).
+- **EC environment control + CO2 telemetry gauge** — Environment Controls had no EC slider while Real-time Telemetry had no CO2 gauge (exact opposites); both added so the two panels mirror the five engine-scored fields (`app/dashboard/page.tsx`).
+
+### Changed / Fixed
+- **Single source of truth for optima** — tomato air-temp reconciled dashboard 26 → 25 to match the engine (`sim.py` reads `optimal_targets()`, no separate `_OPTIMALS`); the CO2 target made crop-aware (lettuce 800 / tomato 900) instead of a hardcoded 800 (`backend/app/sim/engine.py`, `app/dashboard/SimulationProvider.tsx`).
+- **Fresh crop starts unstressed** — sliders now seed from the engine's seedling-stage optima on load / crop-change / Reset, so the plant opens at ~100% health. Previously the defaults (22 °C / 400 ppm) sat off-target and Reset re-hardcoded CO2 to 400, so it read ~25% stress / ~71% harvest at rest before any user action. Seed-once only (never mid-run), so the plant still drifts as it grows and the user must adapt (`app/dashboard/SimulationProvider.tsx`).
+- **Unadjustable EC no longer a permanent stressor** — with stage-aware optima the seedling EC target (0.8 / 2.0) was unreachable because EC had no control, making it a phantom "main stress driver"; the new EC slider fixes this.
+- **"Water Temp" telemetry gauge relabeled "Air Temp"** — it displays the air-temperature parameter (`app/dashboard/page.tsx`).
+
+### Removed
+- **Dead dataset scaffolding** — the frontend `app/api/dataset/route.ts` (+ its test) and the orphaned `lib/dataset.ts` helper (nothing fetched the route at runtime), plus the vestigial `flowRate` sim param. The backend still reads the CSV **only** for `cycle_length_days`; `backend/app/sim/dataset.py`'s docstring and `docs/local_sim.md` / `docs/simulation.md` were refreshed to match.
+
+### Known limitations / follow-ups
+- The engine is **sanity-calibrated, not data-fit** — the dataset is a thesis attachment, not integrated.
+- Health has **no equilibrium floor**, is **fully reversible**, and tolerances are **symmetric**; a display-only yield discount (`× √health`) is not reflected in the API. See `docs/engine.md` §8 / `docs/TODO.md`.
+
+---
+
 ## 2026-07-18
 
 Weekend build-out of the **`data_processing/` pipeline** — turning the raw Autonomous Greenhouse Challenge (AGC) 2nd-edition cherry-tomato files into one clean, model-ready training table (groundwork for the AI yield/stress model, GitHub issue #33).

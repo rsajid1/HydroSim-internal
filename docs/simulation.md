@@ -48,7 +48,9 @@ overrides are not supported.
 - **Simulation speed / time base:** `SIM_HOURS_PER_TICK` and the 1000 ms interval in
   `app/dashboard/page.tsx`.
 - **Crop targets or a new crop:** `CROP_PROFILES` in the engine (the dataset generator imports the same
-  constants, so the two cannot drift).
+  constants, so the two cannot drift). Optima are **stage-aware** — `stage_targets` shifts
+  pH/EC/temperature/humidity/CO₂ by growth stage (seedling → harvest), so a slider's "Target" moves as
+  the plant matures and the sliders seed from the current stage's optima on load / crop-change / Reset.
 
 ## Calibration & limitations
 

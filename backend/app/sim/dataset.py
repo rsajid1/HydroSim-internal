@@ -1,12 +1,13 @@
-"""Local synthetic-dataset loader for the simulation/prediction feature.
+"""Local synthetic-dataset loader — crop metadata only.
 
-Reads the repo-root ``data/synthetic_hydroponics_dataset.csv`` (the same file the
-frontend ``/api/dataset`` route serves) and exposes simple, cached lookups so the
-prediction endpoint can serve the precomputed ``predicted_yield_score`` /
-``stress_score`` / ``risk_level`` columns without any database access.
+Reads the repo-root ``data/synthetic_hydroponics_dataset.csv`` and exposes cached
+lookups. Since the pivot to the grey-box engine, ``POST /api/sim/predict`` computes
+stress / yield / growth / health live from ``app.sim.engine``; this module is
+consulted **only** for ``cycle_length_days`` (time-to-harvest) and ``normalize_crop``
+(crop-id aliasing). The precomputed score columns in the CSV are no longer read, and
+the frontend ``/api/dataset`` route that once served this file has been removed.
 
-The CSV is loaded once and cached in module memory; ML scoring can replace the
-lookup later without changing this module's public surface.
+The CSV is loaded once and cached in module memory.
 """
 from functools import lru_cache
 from pathlib import Path

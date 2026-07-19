@@ -1,12 +1,19 @@
 # Local Simulation — AI Yield & Stress Prediction
 
-> **⚠️ Partly superseded (2026-07).** The parts of this document describing a **dataset lookup**
-> ("nearest-row", replay from the synthetic CSV) are out of date. `POST /api/sim/predict` now computes
-> stress/yield/growth/health live from the deterministic grey-box engine (`backend/app/sim/engine.py`);
-> the synthetic CSV is a calibration/validation artefact, not the prediction source. The request/response
-> **contract** (payload shape, `source` field, fallback behaviour) below is still accurate, plus the
-> response now carries `growth_rate`, `health_rate`, `cycle_days`, and takes `system_type`. For current
-> behaviour see [`docs/simulation.md`](simulation.md) and [`docs/engine.md`](engine.md).
+> **⚠️ Historical (v1 design) — superseded 2026-07.** This document describes the original
+> **dataset-lookup** implementation (nearest-row match, replay from the synthetic CSV,
+> `source: "dataset"`). That is **no longer how it works**:
+> - `POST /api/sim/predict` computes stress / yield / growth / health **live** from the
+>   deterministic grey-box engine (`backend/app/sim/engine.py`) — it is the **sole live scorer**
+>   (`source: "engine"`). There is **no ML model overlay** and **no dataset replay**.
+> - The `GET /api/dataset` route and its `lib/dataset.ts` helpers have been **removed**; the
+>   backend consults the CSV **only** for `cycle_length_days` (time-to-harvest).
+> - The response now also carries `growth_rate`, `health_rate`, `cycle_days`, `growth_stage`, a
+>   stage-aware `optimal` map, and takes `system_type`.
+>
+> Only the request/response **contract shape** (payload fields, fallback behaviour) below remains
+> broadly accurate. For current behaviour see [`docs/simulation.md`](simulation.md) and
+> [`docs/engine.md`](engine.md); the mechanism sections (§1–3, §6) are kept for historical record.
 
 This document explains how the **AI Yield Prediction** panel works end to end: the
 route that was added, how the dashboard talks to the backend, and what payloads go in
@@ -262,8 +269,6 @@ flips to **Local**).
 - **No confidence levels** — planned for the ML phase (issue #8 notes).
 - **Lettuce + tomato only** — other crops (herbs, cucumbers) have no dataset rows and use
   the client-side fallback.
-- The live simulation loop in `page.tsx` now **replays the local synthetic dataset** for
-  the selected crop (lettuce/tomato) — one recorded row per tick, sourced from
-  `GET /api/dataset?crop=<id>`. It only falls back to random parameter drift when the crop
-  has no dataset rows (herbs/cucumbers) or the dataset fetch fails. The AI prediction
-  overlay remains independent and continues to query the backend.
+- The live simulation loop no longer replays any dataset — the engine steps growth/health each
+  tick from the current environment, and the `GET /api/dataset` replay route has been **removed**.
+  See [`docs/simulation.md`](simulation.md).

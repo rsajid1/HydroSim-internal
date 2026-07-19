@@ -31,7 +31,6 @@ export interface SimulationParams {
   temp: number;
   humidity: number;
   co2: number;
-  flowRate: number;
 }
 
 export interface SimulationMetrics {
@@ -188,7 +187,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     temp: CROPS[0].optimal.temp,
     humidity: CROPS[0].optimal.humidity,
     co2: CROPS[0].optimal.co2,
-    flowRate: 100
   });
 
   // Derived Metrics (Simulated Physics)
@@ -493,7 +491,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
       temp: activeCrop.optimal.temp,
       humidity: activeCrop.optimal.humidity,
       co2: activeCrop.optimal.co2, // crop-level fallback; seed call below snaps to seedling optimum
-      flowRate: 100
     });
     seedParamsFromEngine(activeCrop); // re-seed to the seedling-stage optima (async)
     setAlerts([]);
