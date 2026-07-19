@@ -10,6 +10,7 @@ export interface OptimalConditions {
   ec: number;
   temp: number;
   humidity: number;
+  co2: number;
 }
 
 export interface Crop {
@@ -76,8 +77,8 @@ export const SYSTEMS: System[] = [
 // and Reset default land off the engine's optimum, so a user sitting exactly on target still
 // reads phantom stress. (tomato air_temperature_c is 25.0 in the engine, not 26.)
 export const CROPS: Crop[] = [
-  { id: 'lettuce', name: 'Lettuce', optimal: { ph: 6.0, ec: 1.2, temp: 20, humidity: 60 } },
-  { id: 'tomatoes', name: 'Tomatoes', optimal: { ph: 6.0, ec: 2.5, temp: 25, humidity: 70 } },
+  { id: 'lettuce', name: 'Lettuce', optimal: { ph: 6.0, ec: 1.2, temp: 20, humidity: 60, co2: 800 } },
+  { id: 'tomatoes', name: 'Tomatoes', optimal: { ph: 6.0, ec: 2.5, temp: 25, humidity: 70, co2: 900 } },
 ];
 
 // Backend base URL (reused from the DB panel's fetch pattern).

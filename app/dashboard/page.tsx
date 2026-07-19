@@ -454,7 +454,7 @@ export default function DashboardPage() {
                   icon={<Wind size={14} />}
                   value={params.co2}
                   min={300} max={1200} step={10}
-                  optimal={800} // Generic optimal
+                  optimal={activeCrop.optimal.co2} // crop-aware: matches engine CROP_PROFILES (lettuce 800, tomato 900)
                   onChange={(v) => setParams({...params, co2: v})}
                />
             </Card>
