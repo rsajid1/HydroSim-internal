@@ -9,8 +9,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import DashboardPage from "./page";
+import { SimulationProvider } from "./SimulationProvider";
 
 const mockPush = vi.fn();
 
@@ -29,6 +30,10 @@ beforeEach(() => {
   localStorage.clear();
 });
 
+/** DashboardPage reads all simulation state from SimulationProvider (moved out so it
+ *  survives navigation to /dashboard/simulation) — every render needs this wrapper. */
+const renderDashboard = () => render(<SimulationProvider><DashboardPage /></SimulationProvider>);
+
 // ---------------------------------------------------------------------------
 // Initial render
 // Check that the page loads and all the key controls are visible and in the
@@ -37,13 +42,13 @@ beforeEach(() => {
 describe("DashboardPage - initial render", () => {
   it("renders without crashing", () => {
     // Catches broken imports, missing providers, or bad JSX at mount time.
-    const { container } = render(<DashboardPage />);
+    const { container } = renderDashboard();
     expect(container).not.toBeEmptyDOMElement();
   });
 
   it("Simulate button shows 'Simulate' on load, not 'Pause'", () => {
     // Simulation is idle on load — button shouldn't already say Pause.
-    render(<DashboardPage />);
+    renderDashboard();
     const btn = screen.getByRole("button", { name: /simulate/i });
     expect(btn).toBeInTheDocument();
     expect(btn).toHaveTextContent(/simulate/i);
@@ -51,23 +56,23 @@ describe("DashboardPage - initial render", () => {
 
   it("crop selector defaults to Lettuce", () => {
     // Lettuce is first in CROPS — page should never open with an empty selection.
-    render(<DashboardPage />);
+    renderDashboard();
     const select = screen.getByRole("combobox", { name: /crop type/i }) as HTMLSelectElement;
     expect(select).toBeInTheDocument();
     expect(select.value).toBe("lettuce");
   });
 
-  it("crop selector has all four crops", () => {
-    // Fails if someone accidentally removes a crop from the CROPS constant.
-    render(<DashboardPage />);
+  it("crop selector offers the two predictable crops (lettuce, tomatoes)", () => {
+    // Herbs/cucumbers were removed — only crops with local dataset predictions remain.
+    renderDashboard();
     const select = screen.getByRole("combobox", { name: /crop type/i }) as HTMLSelectElement;
     const options = Array.from(select.options).map((o) => o.value);
-    expect(options).toEqual(["lettuce", "herbs", "tomatoes", "cucumbers"]);
+    expect(options).toEqual(["lettuce", "tomatoes"]);
   });
 
   it("system selector defaults to NFT", () => {
     // NFT is first in SYSTEMS and should be pre-selected on load.
-    render(<DashboardPage />);
+    renderDashboard();
     const select = screen.getByRole("combobox", { name: /system architecture/i }) as HTMLSelectElement;
     expect(select).toBeInTheDocument();
     expect(select.value).toBe("nft");
@@ -75,24 +80,25 @@ describe("DashboardPage - initial render", () => {
 
   it("system selector offers the two modeled systems (NFT, DWC)", () => {
     // Only NFT and DWC are modeled by the engine; aeroponics/vertical were removed.
-    render(<DashboardPage />);
+    renderDashboard();
     const select = screen.getByRole("combobox", { name: /system architecture/i }) as HTMLSelectElement;
     const options = Array.from(select.options).map((o) => o.value);
     expect(options).toEqual(["nft", "dwc"]);
   });
 
-  it("all four environment sliders are present", () => {
-    // pH, EC, temperature, humidity — these are the parameters users tune.
-    render(<DashboardPage />);
+  it("environment sliders are present, EC is not user-adjustable", () => {
+    // pH, temperature, humidity — these are the parameters users tune.
+    // EC is frozen at the crop's optimal value and has no slider.
+    renderDashboard();
     expect(screen.getByRole("slider", { name: /acidity/i })).toBeInTheDocument();
-    expect(screen.getByRole("slider", { name: /nutrient/i })).toBeInTheDocument();
+    expect(screen.queryByRole("slider", { name: /nutrient/i })).not.toBeInTheDocument();
     expect(screen.getByRole("slider", { name: /temperature/i })).toBeInTheDocument();
     expect(screen.getByRole("slider", { name: /humidity/i })).toBeInTheDocument();
   });
 
   it("simulation time starts at 0 hours", () => {
     // simulationTime only increments once the user starts the simulation.
-    render(<DashboardPage />);
+    renderDashboard();
     expect(screen.getByText(/0 hours/i)).toBeInTheDocument();
   });
 
@@ -100,7 +106,7 @@ describe("DashboardPage - initial render", () => {
     // growthStage starts at 0. We match the full "Seedling (0%)" string to
     // avoid false positives from other percentage values on the page
     // (humidity gauge, stress factor, etc. also render as "X%").
-    render(<DashboardPage />);
+    renderDashboard();
     expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument();
   });
 });
@@ -112,13 +118,13 @@ describe("DashboardPage - initial render", () => {
 // ---------------------------------------------------------------------------
 describe("DashboardPage - Simulate button interaction", () => {
   it("clicking Simulate switches the button to Pause", () => {
-    render(<DashboardPage />);
+    renderDashboard();
     fireEvent.click(screen.getByRole("button", { name: /simulate/i }));
     expect(screen.getByRole("button", { name: /pause/i })).toBeInTheDocument();
   });
 
   it("clicking Pause switches the button back to Simulate", () => {
-    render(<DashboardPage />);
+    renderDashboard();
     fireEvent.click(screen.getByRole("button", { name: /simulate/i }));
     fireEvent.click(screen.getByRole("button", { name: /pause/i }));
     expect(screen.getByRole("button", { name: /simulate/i })).toBeInTheDocument();
@@ -132,13 +138,13 @@ describe("DashboardPage - Simulate button interaction", () => {
 // ---------------------------------------------------------------------------
 describe("DashboardPage - Reset button interaction", () => {
   it("Reset button is present", () => {
-    render(<DashboardPage />);
+    renderDashboard();
     expect(screen.getByRole("button", { name: /reset simulation/i })).toBeInTheDocument();
   });
 
   it("clicking Reset while running stops the simulation", () => {
     // Start it, confirm it's running, then reset and check it stopped.
-    render(<DashboardPage />);
+    renderDashboard();
     fireEvent.click(screen.getByRole("button", { name: /simulate/i }));
     expect(screen.getByRole("button", { name: /pause/i })).toBeInTheDocument();
 
@@ -155,7 +161,7 @@ describe("DashboardPage - Reset button interaction", () => {
 // ---------------------------------------------------------------------------
 describe("DashboardPage - Crop selection", () => {
   it("changing the crop updates the selector", () => {
-    render(<DashboardPage />);
+    renderDashboard();
     const select = screen.getByRole("combobox", { name: /crop type/i }) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "tomatoes" } });
     expect(select.value).toBe("tomatoes");
@@ -164,7 +170,7 @@ describe("DashboardPage - Crop selection", () => {
   it("changing crop mid-simulation stops the simulation", () => {
     // If simulation kept running after a crop change, growth stats would be
     // out of sync with the new crop's optimal targets.
-    render(<DashboardPage />);
+    renderDashboard();
     fireEvent.click(screen.getByRole("button", { name: /simulate/i }));
     expect(screen.getByRole("button", { name: /pause/i })).toBeInTheDocument();
 
@@ -183,13 +189,13 @@ describe("DashboardPage - Crop selection", () => {
 // ---------------------------------------------------------------------------
 describe("DashboardPage - Logout", () => {
   it("logout button is present", () => {
-    render(<DashboardPage />);
+    renderDashboard();
     expect(screen.getByRole("button", { name: /logout/i })).toBeInTheDocument();
   });
 
   it("clicking logout redirects to /auth/login", () => {
     // A wrong route here means the user stays on the dashboard after logging out.
-    render(<DashboardPage />);
+    renderDashboard();
     fireEvent.click(screen.getByRole("button", { name: /logout/i }));
     expect(mockPush).toHaveBeenCalledWith("/auth/login");
   });
@@ -197,7 +203,7 @@ describe("DashboardPage - Logout", () => {
   it("clears access_token on logout", () => {
     // Primary auth credential — must be gone so the session can't be reused.
     localStorage.setItem("access_token", "fake-token");
-    render(<DashboardPage />);
+    renderDashboard();
     fireEvent.click(screen.getByRole("button", { name: /logout/i }));
     expect(localStorage.getItem("access_token")).toBeNull();
   });
@@ -205,7 +211,7 @@ describe("DashboardPage - Logout", () => {
   it("clears id_token on logout", () => {
     // Carries identity claims (name, email). Should not linger after logout.
     localStorage.setItem("id_token", "fake-id-token");
-    render(<DashboardPage />);
+    renderDashboard();
     fireEvent.click(screen.getByRole("button", { name: /logout/i }));
     expect(localStorage.getItem("id_token")).toBeNull();
   });
@@ -214,7 +220,7 @@ describe("DashboardPage - Logout", () => {
     // Refresh token can silently renew access tokens — leaving it behind
     // would effectively keep the user logged in.
     localStorage.setItem("refresh_token", "fake-refresh");
-    render(<DashboardPage />);
+    renderDashboard();
     fireEvent.click(screen.getByRole("button", { name: /logout/i }));
     expect(localStorage.getItem("refresh_token")).toBeNull();
   });
@@ -277,7 +283,7 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
   });
 
   it("advances the clock by SIM_HOURS_PER_TICK (6) simulated hours per tick", async () => {
-    render(<DashboardPage />);
+    renderDashboard();
     await click(/simulate/i);
     await tick(1);
     expect(screen.getByText(/6 hours/i)).toBeInTheDocument();
@@ -285,7 +291,7 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
 
   it("grows an unstressed lettuce at the crop's cycle rate", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(1.0) });
-    render(<DashboardPage />);
+    renderDashboard();
     await plantLettuce();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS);
@@ -300,7 +306,7 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
 
   it("grows a stressed plant more slowly than an unstressed one", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(0.5) });
-    render(<DashboardPage />);
+    renderDashboard();
     await plantLettuce();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS);
@@ -316,7 +322,7 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
 
   it("does not grow a plant at growth_rate 0", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(0.0) });
-    render(<DashboardPage />);
+    renderDashboard();
     await plantLettuce();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS);
@@ -331,7 +337,7 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
   it("freezes growth when the backend gives no prediction", async () => {
     // Default beforeEach mock is { ok: false }, so `prediction` stays null. The bar must
     // not advance at some invented rate — a backend outage should be visible, not silent.
-    render(<DashboardPage />);
+    renderDashboard();
     await click(/simulate/i);
     await tick(20);
 
@@ -341,14 +347,14 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
   });
 
   it("starts at full health", () => {
-    render(<DashboardPage />);
+    renderDashboard();
     expect(screen.getByText(/Health 100%/i)).toBeInTheDocument();
   });
 
   it("loses health over time under a negative health rate", async () => {
     // -0.01/sim-hour × 6 h/tick = -0.06/tick → 10 ticks ≈ -0.6 → ~40% health.
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(0.5, 45, -0.01) });
-    render(<DashboardPage />);
+    renderDashboard();
     await plantLettuce();
     await act(async () => { await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS); });
 
@@ -360,7 +366,7 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
 
   it("dies when health reaches 0", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(0.2, 45, -0.05) });
-    render(<DashboardPage />);
+    renderDashboard();
     await plantLettuce();
     await act(async () => { await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS); });
 
@@ -372,7 +378,7 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
 
   it("stays dead even when conditions are restored (death is irreversible)", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(0.2, 45, -0.05) });
-    render(<DashboardPage />);
+    renderDashboard();
     await plantLettuce();
     await act(async () => { await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS); });
     await click(/simulate/i);
@@ -392,7 +398,7 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
 
   it("reset brings a dead plant back to full health", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(0.2, 45, -0.05) });
-    render(<DashboardPage />);
+    renderDashboard();
     await plantLettuce();
     await act(async () => { await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS); });
     await click(/simulate/i);
@@ -408,7 +414,7 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
     // Both have growth_rate 1.0, but the damaged plant's health has decayed, so its growth
     // (perTick × rate × health) falls behind. This is the memory the whole change is for.
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(1.0, 45, -0.03) });
-    render(<DashboardPage />);
+    renderDashboard();
     await plantLettuce();
     await act(async () => { await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS); });
 
@@ -418,5 +424,182 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
     // Healthy (health=1) would reach 5% in 10 ticks; with health bleeding down it is strictly less.
     expect(screen.queryByText(/Seedling \(5%\)/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Seedling \([0-3]%\)/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-row independence & growth charts
+// Each row is its own crop and its own simulation now — planting two different
+// crops must NOT share one global growth/health number, and a crop change on
+// one row must not disturb the clock or any other row.
+// ---------------------------------------------------------------------------
+describe("DashboardPage - per-row independence & growth charts", () => {
+  const PREDICT_DEBOUNCE_MS = 300;
+
+  const predictionBody = (growthRate: number, cycleDays = 45, healthRate = 0) => ({
+    harvest_quality: 100,
+    stress_factor: (1 - growthRate) * 100,
+    growth_rate: growthRate,
+    health_rate: healthRate,
+    cycle_days: cycleDays,
+    estimated_days_to_harvest: 45,
+    risk_level: "low",
+    status: "stable",
+    explanation: "All inputs near optimal",
+    source: "engine",
+  });
+
+  /** Routes the mocked fetch response by the request's crop_type, so two rows
+   *  planted with different crops get different growth/cycle behavior. */
+  const mockFetchByCrop = (byCropType: Record<string, ReturnType<typeof predictionBody>>) => {
+    global.fetch = vi.fn((_url: unknown, opts: unknown) => {
+      const body = JSON.parse((opts as RequestInit).body as string);
+      const resp = byCropType[body.crop_type];
+      return Promise.resolve({ ok: !!resp, json: async () => resp ?? {} });
+    }) as unknown as typeof fetch;
+  };
+
+  const click = async (name: RegExp | string) => {
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  };
+
+  const tick = async (times: number) => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000 * times);
+    });
+  };
+
+  const settle = async () => {
+    await act(async () => { await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS); });
+  };
+
+  /** Clicks a crop option inside the open dropdown, scoped to #cropSelect — once a crop
+   *  is planted in some row, its pods' aria-labels (e.g. "crop4, tomato") also match a
+   *  loose /tomato/i text search, so an unscoped click becomes ambiguous. */
+  const clickCropOption = async (crop: 'lettuce' | 'tomato') => {
+    const dropdown = document.getElementById('cropSelect')!;
+    await act(async () => {
+      fireEvent.click(within(dropdown).getByRole('button', { name: new RegExp(crop, 'i') }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  };
+
+  /** Plants lettuce in row 0 (pods crop1-3) and tomato in row 1 (pods crop4-6). */
+  const plantTwoRows = async () => {
+    await click(/crop1, empty/i);
+    await clickCropOption('lettuce');
+    await click(/crop4, empty/i);
+    await clickCropOption('tomato');
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("two rows with different crops grow independently, not from one shared number", async () => {
+    mockFetchByCrop({
+      lettuce: predictionBody(1.0, 45),
+      tomatoes: predictionBody(1.0, 120),
+    });
+    renderDashboard();
+    await plantTwoRows();
+    await settle();
+
+    await click(/simulate/i);
+    await tick(10);
+
+    // plantTwoRows() leaves row 1 (tomato) active — switch to row 0 to check it.
+    await click(/crop1, lettuce/i);
+
+    // Row 0: lettuce, perTick = 100*6/(45*24) = 0.5555…% × 10 → 5%.
+    expect(screen.getByText(/Seedling \(5%\)/i)).toBeInTheDocument();
+
+    // Switch to row 1 by clicking its (already planted) pod — same crop identity, no reset.
+    await click(/crop4, tomato/i);
+
+    // Row 1: tomato, perTick = 100*6/(120*24) = 0.2083…% × 10 → 2%. If both rows shared one
+    // global growth number, this would still read 5%.
+    expect(screen.getByText(/Seedling \(2%\)/i)).toBeInTheDocument();
+  });
+
+  it("changing a planted row's crop resets only that row, not the clock or other rows", async () => {
+    mockFetchByCrop({
+      lettuce: predictionBody(1.0, 45),
+      tomatoes: predictionBody(1.0, 120),
+    });
+    renderDashboard();
+    await plantTwoRows();
+    await settle();
+
+    await click(/simulate/i);
+    await tick(10);
+
+    // Switch to row 0 (plantTwoRows() leaves row 1 active) and open its dropdown —
+    // the same click both selects row 0 for viewing and opens the reassignment picker.
+    await click(/crop1, lettuce/i);
+    expect(screen.getByText(/Seedling \(5%\)/i)).toBeInTheDocument(); // row 0 progressed
+    expect(screen.getByText(/60 hours/i)).toBeInTheDocument();
+
+    // Reassign row 0 from lettuce to tomato — a real crop change on an occupied row.
+    await clickCropOption('tomato');
+
+    // Row 0 restarted...
+    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument();
+    // ...but the shared clock kept its value, it was not zeroed.
+    expect(screen.getByText(/60 hours/i)).toBeInTheDocument();
+
+    // Row 1 (tomato, never touched) kept its own progress.
+    await click(/crop4, tomato/i);
+    expect(screen.getByText(/Seedling \(2%\)/i)).toBeInTheDocument();
+  });
+
+  it("the header Reset button still resets the clock and every row", async () => {
+    mockFetchByCrop({
+      lettuce: predictionBody(1.0, 45),
+      tomatoes: predictionBody(1.0, 120),
+    });
+    renderDashboard();
+    await plantTwoRows();
+    await settle();
+
+    await click(/simulate/i);
+    await tick(10);
+    expect(screen.getByText(/60 hours/i)).toBeInTheDocument();
+
+    await click(/reset simulation/i);
+
+    expect(screen.getByText(/0 hours/i)).toBeInTheDocument();
+    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument(); // row 0 (active)
+    await click(/crop4, tomato/i);
+    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument(); // row 1 too
+  });
+
+  it("shows a View Chart button once a row is planted, not before", async () => {
+    // The chart itself now lives on its own page (/dashboard/simulation) — see
+    // simulation/page.test.tsx. Here we only check the dashboard's entry point to it.
+    renderDashboard();
+    expect(screen.queryByRole("button", { name: /view chart/i })).not.toBeInTheDocument();
+
+    await click(/crop1, empty/i);
+    await clickCropOption('lettuce');
+
+    expect(screen.getByRole("button", { name: /view chart/i })).toBeInTheDocument();
+  });
+
+  it("clicking View Chart navigates to /dashboard/simulation", async () => {
+    renderDashboard();
+    await click(/crop1, empty/i);
+    await clickCropOption('lettuce');
+
+    await click(/view chart/i);
+
+    expect(mockPush).toHaveBeenCalledWith('/dashboard/simulation');
   });
 });
