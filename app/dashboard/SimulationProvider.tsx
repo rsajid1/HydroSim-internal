@@ -177,13 +177,17 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const [plantDeadByRow, setPlantDeadByRow] = useState<Record<number, boolean>>({ 0: false, 1: false, 2: false }); // absorbing state
   const [alerts, setAlerts] = useState<Alert[]>([]);
 
-  // Environmental Parameters (State + Controls)
+  // Environmental Parameters (State + Controls).
+  // Seeded from CROPS[0] (lettuce) crop-level optima as an immediate, backend-independent
+  // fallback; seedParamsFromEngine() then snaps these to the seedling-stage optima once the
+  // engine responds, so a fresh crop opens unstressed (~100% health) instead of at the old
+  // off-target 22 °C / 400 ppm defaults.
   const [params, setParams] = useState<SimulationParams>({
-    ph: 6.0,
-    ec: 1.2,
-    temp: 22.0,
-    humidity: 60,
-    co2: 400,
+    ph: CROPS[0].optimal.ph,
+    ec: CROPS[0].optimal.ec,
+    temp: CROPS[0].optimal.temp,
+    humidity: CROPS[0].optimal.humidity,
+    co2: CROPS[0].optimal.co2,
     flowRate: 100
   });
 
@@ -414,6 +418,51 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plants, activeSystem.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStageByRow]);
 
+  // -- Seed the environment to the crop's starting (seedling) optima --
+  // On mount and whenever the crop changes, ask the engine for the seedling-stage optimal
+  // targets and snap the sliders to them, so a fresh crop opens unstressed at ~100% health.
+  // This is "seed once": it never runs mid-simulation, so as the plant grows the targets shift
+  // while the user's settings stay put and they must adapt (that's the point of stage-aware
+  // optima). Falls back silently to the crop-level defaults if the backend is unreachable.
+  const seedParamsFromEngine = async (crop: Crop) => {
+    if (!PREDICTABLE_CROPS.has(crop.id)) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/sim/predict`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          crop_type: crop.id,
+          system_type: activeSystem.id,
+          growth_percent: 0, // seedling — the starting stage
+          ph: crop.optimal.ph,
+          ec: crop.optimal.ec,
+          air_temperature_c: crop.optimal.temp,
+          humidity_percent: crop.optimal.humidity,
+          co2_ppm: crop.optimal.co2,
+        }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.optimal) {
+        setParams(prev => ({
+          ...prev,
+          ph: data.optimal.ph,
+          ec: data.optimal.ec,
+          temp: data.optimal.air_temperature_c,
+          humidity: data.optimal.humidity_percent,
+          co2: data.optimal.co2_ppm,
+        }));
+      }
+    } catch {
+      /* backend down — keep the crop-level fallback already in params */
+    }
+  };
+
+  useEffect(() => {
+    seedParamsFromEngine(activeCrop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCrop.id]);
+
   // -- Handlers --
   // Resets a single row's growth/health/prediction/history (state + refs, synchronously
   // so a tick firing before the mirroring effects re-run can't read stale ref values).
@@ -443,9 +492,10 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
       ec: activeCrop.optimal.ec,
       temp: activeCrop.optimal.temp,
       humidity: activeCrop.optimal.humidity,
-      co2: 400,
+      co2: activeCrop.optimal.co2, // crop-level fallback; seed call below snaps to seedling optimum
       flowRate: 100
     });
+    seedParamsFromEngine(activeCrop); // re-seed to the seedling-stage optima (async)
     setAlerts([]);
     setMetrics({ yieldPrediction: 100, stressLevel: 0, waterLevel: 100 });
   };

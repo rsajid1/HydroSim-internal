@@ -439,6 +439,14 @@ export default function DashboardPage() {
                   onChange={(v) => setParams({...params, ph: v})}
                />
                <ControlSlider
+                  label="EC (mS/cm)"
+                  icon={<Activity size={14} />}
+                  value={params.ec}
+                  min={0.5} max={4.0} step={0.1}
+                  optimal={activeOptimal.ec}
+                  onChange={(v) => setParams({...params, ec: v})}
+               />
+               <ControlSlider
                   label="Temperature (°C)"
                   icon={<Thermometer size={14} />}
                   value={params.temp}
@@ -636,8 +644,9 @@ export default function DashboardPage() {
             <Card title="Real-time Telemetry">
                <MetricGauge label="pH Level" value={params.ph} unit="" min={4.0} max={8.0} optimal={activeOptimal.ph} />
                <MetricGauge label="EC (mS/cm)" value={params.ec} unit="" min={0.5} max={4.0} optimal={activeOptimal.ec} />
-               <MetricGauge label="Water Temp" value={params.temp} unit="°C" min={10} max={40} optimal={activeOptimal.temp} />
+               <MetricGauge label="Air Temp" value={params.temp} unit="°C" min={10} max={40} optimal={activeOptimal.temp} />
                <MetricGauge label="Humidity" value={params.humidity} unit="%" min={0} max={100} optimal={activeOptimal.humidity} />
+               <MetricGauge label="CO2 (ppm)" value={params.co2} unit="" min={300} max={1200} optimal={activeOptimal.co2} />
             </Card>
 
             <Card title={`AI Yield Prediction — ${rows[activeRow].name}`} className="relative overflow-hidden">
