@@ -32,12 +32,23 @@ lands off the engine's optimum (a user on-target reads phantom stress).
 - Note: initial/Reset CO2 defaults to 400 ppm (ambient, unenriched) **by design** — a starting
   condition, not a drift; the slider's Target now correctly reads the crop optimum.
 
-## 2. Stage-aware targets (issue #5) — reasoned estimates, not data
+## 2. Stage-aware targets (issue #5) — reasoned estimates, not data — DONE
 
-Engine v1 uses one crop-level target and **ignores** the `stage` argument.
+Engine v1 used one crop-level target and ignored the `stage` argument; now optima shift by
+growth stage.
 
-- [ ] Make `optimal_targets(crop, stage)` actually use `stage`, with per-stage target bands set
-      from **published agronomic priors** (same reasoned-estimate tier as the rest of the engine).
+- [x] Added `stage_targets` to `CROP_PROFILES` (tomato 5 stages, lettuce 3) as reasoned
+      agronomic estimates — EC ramps up with maturity, humidity drops at flowering, temps ease
+      toward harvest. `optimal_targets(crop, stage)` overlays them on the crop-level targets;
+      `stage=None`/unknown stage returns crop-level unchanged (generator + calibration tests
+      unaffected, seeded CSV byte-identical).
+- [x] `stage_for_progress(crop, growth_percent)` resolves the stage server-side from progress, so
+      the frontend contract didn't have to change. `sim.py` threads the stage through
+      stress/growth/health/explanation and returns `growth_stage` + stage-aware `optimal`.
+- [x] Dashboard sliders/gauges follow the returned `optimal` (the "Target" marker shifts as the
+      plant grows), falling back to crop-level before the first prediction.
+- [x] Tests: `test_engine.py` covers the merge + `stage_for_progress`; `test_sim_predict.py`
+      fixture moved onto the vegetative optimum. 111 backend tests pass; lint 0 errors.
 
 ## 3. System — engine is the sole live source — VALIDATED (teammate did it)
 

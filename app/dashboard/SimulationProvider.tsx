@@ -55,6 +55,8 @@ export interface Prediction {
   timeToHarvest: number;
   riskLevel: string;
   explanation: string;
+  stage: string | null;              // resolved growth stage the targets were scored against
+  optimal: OptimalConditions | null; // stage-aware targets from the engine (drive the slider "Target")
   source: string;
 }
 
@@ -371,6 +373,17 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
           timeToHarvest: data.estimated_days_to_harvest,
           riskLevel: data.risk_level,
           explanation: data.explanation,
+          stage: data.growth_stage ?? null,
+          // Engine returns stage-aware optima keyed by backend field names; map to the UI shape.
+          optimal: data.optimal
+            ? {
+                ph: data.optimal.ph,
+                ec: data.optimal.ec,
+                temp: data.optimal.air_temperature_c,
+                humidity: data.optimal.humidity_percent,
+                co2: data.optimal.co2_ppm,
+              }
+            : null,
           source: data.source,
         },
       }));

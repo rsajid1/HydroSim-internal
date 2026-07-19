@@ -237,6 +237,11 @@ export default function DashboardPage() {
     router.push('/dashboard/simulation');
   };
 
+  // Slider/gauge "Target" markers follow the engine's stage-aware optima when a prediction is
+  // live (they shift as the plant grows — e.g. tomato EC ramps up in fruiting); before the first
+  // prediction, fall back to the crop-level optima.
+  const activeOptimal = predictionByRow[activeRow]?.optimal ?? activeCrop.optimal;
+
   return (
     <div className="flex h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden selection:bg-blue-500/30">
 
@@ -430,7 +435,7 @@ export default function DashboardPage() {
                   icon={<Droplets size={14} />}
                   value={params.ph}
                   min={4.0} max={8.0} step={0.1}
-                  optimal={activeCrop.optimal.ph}
+                  optimal={activeOptimal.ph}
                   onChange={(v) => setParams({...params, ph: v})}
                />
                <ControlSlider
@@ -438,7 +443,7 @@ export default function DashboardPage() {
                   icon={<Thermometer size={14} />}
                   value={params.temp}
                   min={10} max={40} step={0.5}
-                  optimal={activeCrop.optimal.temp}
+                  optimal={activeOptimal.temp}
                   onChange={(v) => setParams({...params, temp: v})}
                />
                <ControlSlider
@@ -446,7 +451,7 @@ export default function DashboardPage() {
                   icon={<Wind size={14} />}
                   value={params.humidity}
                   min={0} max={100} step={1}
-                  optimal={activeCrop.optimal.humidity}
+                  optimal={activeOptimal.humidity}
                   onChange={(v) => setParams({...params, humidity: v})}
                />
                <ControlSlider
@@ -454,7 +459,7 @@ export default function DashboardPage() {
                   icon={<Wind size={14} />}
                   value={params.co2}
                   min={300} max={1200} step={10}
-                  optimal={activeCrop.optimal.co2} // crop-aware: matches engine CROP_PROFILES (lettuce 800, tomato 900)
+                  optimal={activeOptimal.co2} // stage-aware: engine CROP_PROFILES + stage_targets (shifts by growth stage)
                   onChange={(v) => setParams({...params, co2: v})}
                />
             </Card>
@@ -629,10 +634,10 @@ export default function DashboardPage() {
           {/* --- COLUMN 3: TELEMETRY & AI --- */}
           <div className="lg:col-span-3 space-y-4">
             <Card title="Real-time Telemetry">
-               <MetricGauge label="pH Level" value={params.ph} unit="" min={4.0} max={8.0} optimal={activeCrop.optimal.ph} />
-               <MetricGauge label="EC (mS/cm)" value={params.ec} unit="" min={0.5} max={4.0} optimal={activeCrop.optimal.ec} />
-               <MetricGauge label="Water Temp" value={params.temp} unit="°C" min={10} max={40} optimal={activeCrop.optimal.temp} />
-               <MetricGauge label="Humidity" value={params.humidity} unit="%" min={0} max={100} optimal={activeCrop.optimal.humidity} />
+               <MetricGauge label="pH Level" value={params.ph} unit="" min={4.0} max={8.0} optimal={activeOptimal.ph} />
+               <MetricGauge label="EC (mS/cm)" value={params.ec} unit="" min={0.5} max={4.0} optimal={activeOptimal.ec} />
+               <MetricGauge label="Water Temp" value={params.temp} unit="°C" min={10} max={40} optimal={activeOptimal.temp} />
+               <MetricGauge label="Humidity" value={params.humidity} unit="%" min={0} max={100} optimal={activeOptimal.humidity} />
             </Card>
 
             <Card title={`AI Yield Prediction — ${rows[activeRow].name}`} className="relative overflow-hidden">
