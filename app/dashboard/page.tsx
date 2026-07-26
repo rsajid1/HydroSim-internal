@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Activity,
@@ -24,6 +24,9 @@ import {
   XCircle,
   Loader,
   LineChart as LineChartIcon,
+  ChevronsLeft,
+  ChevronsRight,
+  Info,
 } from 'lucide-react';
 import { useSimulation, SYSTEMS, CROPS } from './SimulationProvider';
 
@@ -68,6 +71,7 @@ interface NavItemProps {
   label: string;
   active?: boolean;
   onClick?: () => void;
+  collapsed?: boolean;
 }
 
 // --- Helper Components ---
@@ -113,43 +117,36 @@ const ControlSlider: React.FC<ControlSliderProps> = ({ label, icon, value, min, 
   const id = React.useId();
   return (
     <div className="mb-4 group">
-      <div className="flex justify-between mb-1.5">
+      <div className="flex justify-between items-baseline mb-1.5 gap-2">
         <label htmlFor={id} className="flex items-center gap-2 text-slate-300 text-xs font-medium uppercase">
           {icon} {label}
           {readOnly && <span className="text-[10px] text-slate-500 normal-case font-normal">(status only)</span>}
         </label>
-        <span className="text-slate-400 font-mono text-xs bg-slate-800 px-1.5 py-0.5 rounded">
-          Target: {optimal}
+        {/* Merged readout: current value (prominent) + target (muted) — replaces the separate
+            "Target" pill and read-only number box, which duplicated the same information. */}
+        <span className="font-mono text-xs whitespace-nowrap">
+          <span className="text-blue-400 font-bold">{value.toFixed(1)}</span>
+          <span className="text-slate-500 ml-1.5">Target {optimal}</span>
         </span>
       </div>
-      <div className="flex items-center gap-3">
-        <input
-          id={id}
-          aria-label={label}
-          type="range"
-          min={min} max={max} step={step}
-          value={value}
-          onChange={(e) => !readOnly && onChange?.(parseFloat(e.target.value))}
-          disabled={readOnly}
-          className={`flex-1 h-2 bg-slate-800 rounded-lg appearance-none transition-all ${readOnly ? 'opacity-50 cursor-not-allowed accent-slate-500' : 'cursor-pointer accent-blue-500 hover:accent-blue-400'}`}
-        />
-        <input
-          id={`${id}-value`}
-          aria-label={`${label} value`}
-          type="number"
-          value={parseFloat(value.toFixed(1))}
-          readOnly
-          className="w-14 bg-slate-950 border border-slate-800 rounded px-1 py-0.5 text-right text-sm font-mono text-blue-400 focus:ring-1 focus:ring-blue-500 outline-none"
-        />
-      </div>
+      <input
+        id={id}
+        aria-label={label}
+        type="range"
+        min={min} max={max} step={step}
+        value={value}
+        onChange={(e) => !readOnly && onChange?.(parseFloat(e.target.value))}
+        disabled={readOnly}
+        className={`w-full h-2 bg-slate-800 rounded-lg appearance-none transition-all ${readOnly ? 'opacity-50 cursor-not-allowed accent-slate-500' : 'cursor-pointer accent-blue-500 hover:accent-blue-400'}`}
+      />
     </div>
   );
 };
 
-const NavItem: React.FC<NavItemProps> = ({ icon, label, active, onClick }) => (
-  <button onClick={onClick} aria-label={label} title={label} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-all ${active ? 'bg-blue-600/10 text-blue-400 border-r-2 border-blue-500' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+const NavItem: React.FC<NavItemProps> = ({ icon, label, active, onClick, collapsed = false }) => (
+  <button onClick={onClick} aria-label={label} title={label} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-all ${collapsed ? 'md:justify-center' : ''} ${active ? 'bg-blue-600/10 text-blue-400 border-r-2 border-blue-500' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
     {React.cloneElement(icon, { size: 20 } as any)}
-    <span className="font-medium text-sm hidden md:block">{label}</span>
+    <span className={`font-medium text-sm ${collapsed ? 'hidden' : 'hidden md:block'}`}>{label}</span>
   </button>
 );
 
@@ -168,6 +165,20 @@ export default function DashboardPage() {
 
   // -- Nav State --
   const [activeNav, setActiveNav] = useState<string>('simulation');
+
+  // -- Sidebar collapse (icon-only) — user-toggled, persisted across reloads. Init false to
+  // match the server-rendered HTML (avoids a hydration mismatch); the saved value is applied
+  // on mount. --
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  useEffect(() => {
+    // Read once after mount (not a lazy initializer) so the server and client agree on the
+    // initial `false`, avoiding a hydration mismatch on the sidebar width.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (localStorage.getItem('hydrosim.sidebarCollapsed') === 'true') setSidebarCollapsed(true);
+  }, []);
+  useEffect(() => {
+    localStorage.setItem('hydrosim.sidebarCollapsed', String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   // -- DB Test State --
   const [dbStatus, setDbStatus] = useState<'idle' | 'loading' | 'connected' | 'failed'>('idle');
@@ -252,31 +263,44 @@ export default function DashboardPage() {
     <div className="flex h-screen bg-slate-950 text-slate-200 font-sans overflow-hidden selection:bg-blue-500/30">
 
       {/* --- SIDEBAR NAVIGATION --- */}
-      <aside className="w-16 md:w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0 transition-all">
-        <div className="p-4 flex items-center gap-3 border-b border-slate-800 h-16">
-          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold shadow-lg shadow-blue-900/20">H</div>
-          <span className="font-bold text-lg tracking-tight hidden md:block">HydroSim</span>
+      <aside className={`${sidebarCollapsed ? 'w-16' : 'w-16 md:w-64'} bg-slate-900 border-r border-slate-800 flex flex-col shrink-0 transition-[width] duration-300 ease-in-out`}>
+        <div className={`p-4 flex items-center gap-3 border-b border-slate-800 h-16 ${sidebarCollapsed ? 'md:justify-center' : ''}`}>
+          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold shadow-lg shadow-blue-900/20 shrink-0">H</div>
+          <span className={`font-bold text-lg tracking-tight ${sidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>HydroSim</span>
         </div>
 
+        {/* Collapse/expand toggle — only meaningful at md+ (below md the sidebar is already icon-only) */}
+        <button
+          onClick={() => setSidebarCollapsed(v => !v)}
+          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-expanded={!sidebarCollapsed}
+          className={`hidden md:flex items-center gap-2 mx-2 mt-2 px-3 py-2 rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-all ${sidebarCollapsed ? 'justify-center' : ''}`}
+        >
+          {sidebarCollapsed
+            ? <ChevronsRight size={18} />
+            : <><ChevronsLeft size={18} /><span className="text-xs font-medium">Collapse</span></>}
+        </button>
+
         <nav className="flex-1 p-2 space-y-1 mt-4">
-          <NavItem icon={<LayoutDashboard />} label="Dashboard" active={activeNav === 'dashboard'} onClick={() => setActiveNav('dashboard')} />
-          <NavItem icon={<Activity />} label="Simulation" active={activeNav === 'simulation'} onClick={() => setActiveNav('simulation')} />
-          <NavItem icon={<Database />} label="Database" active={activeNav === 'database'} onClick={() => setActiveNav('database')} />
-          <NavItem icon={<BookOpen />} label="Learning Modules" active={activeNav === 'learning'} onClick={() => setActiveNav('learning')} />
+          <NavItem icon={<LayoutDashboard />} label="Dashboard" active={activeNav === 'dashboard'} onClick={() => setActiveNav('dashboard')} collapsed={sidebarCollapsed} />
+          <NavItem icon={<Activity />} label="Simulation" active={activeNav === 'simulation'} onClick={() => setActiveNav('simulation')} collapsed={sidebarCollapsed} />
+          <NavItem icon={<Database />} label="Database" active={activeNav === 'database'} onClick={() => setActiveNav('database')} collapsed={sidebarCollapsed} />
+          <NavItem icon={<BookOpen />} label="Learning Modules" active={activeNav === 'learning'} onClick={() => setActiveNav('learning')} collapsed={sidebarCollapsed} />
           <div className="my-4 border-t border-slate-800"></div>
-          <NavItem icon={<Settings />} label="Configuration" active={activeNav === 'config'} onClick={() => setActiveNav('config')} />
+          <NavItem icon={<Settings />} label="Configuration" active={activeNav === 'config'} onClick={() => setActiveNav('config')} collapsed={sidebarCollapsed} />
         </nav>
 {/* logout button */}
           <button
             onClick={handleLogout}
             aria-label="Logout"
             title="Logout"
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-all text-red-400 hover:bg-red-500/10 hover:text-red-300"
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-all text-red-400 hover:bg-red-500/10 hover:text-red-300 ${sidebarCollapsed ? 'md:justify-center' : ''}`}
           >
             <LogOut size={20} />
-            <span className="font-medium text-sm hidden md:block">Logout</span>
+            <span className={`font-medium text-sm ${sidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>Logout</span>
           </button>
-        <div className="p-4 border-t border-slate-800 hidden md:block">
+        <div className={`p-4 border-t border-slate-800 ${sidebarCollapsed ? 'hidden' : 'hidden md:block'}`}>
           <div className="text-xs text-slate-500 mb-1">Project Status</div>
           <div className="flex items-center gap-2 text-sm font-mono text-green-400">
             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
@@ -434,11 +458,26 @@ export default function DashboardPage() {
               </div>
             </Card>
 
-            <Card title="Environment Controls" className="flex-1">
-               <p className="text-[10px] text-slate-500 mb-3 leading-tight">
-                 Environment settings are global — they apply to all pods on every shelf (shared nutrient
-                 solution &amp; climate). Per-pod overrides aren&apos;t supported.
-               </p>
+            <Card>
+               {/* Header + info icon. The "settings are global" note lives in a hover/focus tooltip
+                   (CSS peer, no JS popup) instead of a paragraph eating panel space. */}
+               <div className="relative flex items-center gap-1.5 mb-3">
+                 <h3 className="text-slate-400 text-xs font-bold uppercase tracking-wider">Environment Controls</h3>
+                 <button
+                   type="button"
+                   aria-label="About environment settings"
+                   className="peer inline-flex items-center text-slate-500 hover:text-slate-300 focus:text-slate-300 cursor-help outline-none"
+                 >
+                   <Info size={13} />
+                 </button>
+                 <span
+                   role="tooltip"
+                   className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-56 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-[10px] font-normal normal-case leading-snug text-slate-300 opacity-0 shadow-lg transition-opacity duration-150 peer-hover:opacity-100 peer-focus:opacity-100"
+                 >
+                   Environment settings are global — they apply to all pods on every shelf (shared nutrient
+                   solution &amp; climate). Per-pod overrides aren&apos;t supported.
+                 </span>
+               </div>
                <ControlSlider
                   label="Acidity (pH)"
                   icon={<Droplets size={14} />}
@@ -485,136 +524,116 @@ export default function DashboardPage() {
           {/* --- COLUMN 2: VISUALIZATION (DIGITAL TWIN) --- */}
           <div className="lg:col-span-6 flex flex-col gap-4">
             {/* Garden Planter View */}
-            <div className="flex-1 bg-slate-900 rounded-lg border border-slate-800 overflow-hidden flex flex-col lg:flex-row">
-              <div className="flex-1 p-4 flex flex-col gap-4">
-                <div className="flex items-center justify-between text-xs text-slate-400 uppercase">
-                  <div className="flex items-center gap-2">
-                    <Sprout size={14} className="text-green-400" />
-                    <span>Growth Stage — {rows[activeRow].name}</span>
-                    <span className="text-white font-semibold">{getGrowthLabel(growthStageByRow[activeRow])} ({Math.floor(growthStageByRow[activeRow])}%)</span>
-                    <span className={`font-semibold ${plantDeadByRow[activeRow] ? 'text-red-500' : healthByRow[activeRow] >= 0.7 ? 'text-green-400' : healthByRow[activeRow] >= 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
-                      · {plantDeadByRow[activeRow] ? 'DEAD' : `Health ${Math.round(healthByRow[activeRow] * 100)}%`}
-                    </span>
-                  </div>
-                  <div className="font-mono text-white">{simulationTime} Hours</div>
-                </div>
+            <div className="flex-1 bg-slate-900 rounded-lg border border-slate-800 overflow-hidden flex flex-col relative">
+              {/* Dotted grid backdrop behind the whole panel. */}
+              <div className="absolute inset-0 bg-grid-pattern opacity-30 pointer-events-none"></div>
 
-                <div className="relative flex-1 flex items-center justify-center">
-                  <div className="absolute inset-0 bg-grid-pattern opacity-40"></div>
-                  <div className="relative w-full max-w-sm space-y-4">
-                    {rows.map((row) => {
-                      const isActive = activeRow === row.id;
-                      return (
-                        <button
-                          key={row.id}
-                          onClick={() => handlePlanterClick(row.id)}
-                          className={`group w-full rounded-xl border transition-all flex flex-col gap-1 px-3 py-3 text-left ${isActive ? 'border-emerald-400 bg-slate-800 shadow-lg shadow-emerald-900/40' : 'border-slate-700 bg-slate-800/60 hover:border-emerald-300/70 hover:bg-slate-800/80'}`}
-                          aria-pressed={isActive}
-                          aria-label={`${row.name}, ${rowOccupancy(row.id)} of 3 planted`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="text-sm font-semibold text-white">{row.name}</div>
-                            </div>
-                            <div className={`text-[11px] px-2 py-1 rounded-full font-mono ${isActive ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/50' : 'bg-slate-900 text-slate-300 border border-slate-700'}`}>
-                              {rowOccupancy(row.id)}/3
-                            </div>
-                          </div>
-                          <div className="relative mt-2 h-5 rounded-lg overflow-hidden bg-slate-950 border border-slate-700">
-                            <div className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-slate-700/40 to-slate-700/10"></div>
-                            <div className="absolute inset-0 flex items-center px-2">
-                              <div className={`h-2 rounded-full transition-all ${isActive ? 'bg-emerald-400/80' : 'bg-slate-600/70'}`} style={{ width: `${(rowOccupancy(row.id) / 3) * 100}%` }}></div>
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+              {/* Status chip — one unified horizontal pill for the ACTIVE row (row · stage · health ·
+                  clock), thin dividers between segments. Replaces the old growth-stage header and the
+                  Top/Middle/Bottom row-switcher cards; the planter below is now the row switcher. */}
+              <div className="relative flex justify-center px-4 pt-4">
+                <div className="inline-flex items-center gap-3 rounded-full border border-slate-700/80 bg-slate-900/70 backdrop-blur px-4 py-2 text-xs shadow-md shadow-black/20 ring-1 ring-inset ring-white/5 max-w-full overflow-x-auto">
+                  <span className="flex items-center gap-1.5 text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                    <Sprout size={14} className="text-green-400 shrink-0" />
+                    {rows[activeRow].name}
+                  </span>
+                  <span className="w-px h-4 bg-slate-600/60 shrink-0" />
+                  <span className="text-white font-semibold whitespace-nowrap">{getGrowthLabel(growthStageByRow[activeRow])} ({Math.floor(growthStageByRow[activeRow])}%)</span>
+                  <span className="w-px h-4 bg-slate-600/60 shrink-0" />
+                  <span className={`font-semibold whitespace-nowrap ${plantDeadByRow[activeRow] ? 'text-red-500' : healthByRow[activeRow] >= 0.7 ? 'text-green-400' : healthByRow[activeRow] >= 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {plantDeadByRow[activeRow] ? 'DEAD' : `Health ${Math.round(healthByRow[activeRow] * 100)}%`}
+                  </span>
+                  <span className="w-px h-4 bg-slate-600/60 shrink-0" />
+                  <span className="font-mono text-slate-300 whitespace-nowrap">{simulationTime} Hours</span>
                 </div>
               </div>
 
-              <div className="lg:w-1/2 border-t border-slate-800 lg:border-l lg:border-t-0 bg-slate-950/60 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <div className="text-xs uppercase text-slate-400">Planter Detail</div>
-                    <div className="text-sm font-semibold text-white">3x3 Grow Bed</div>
+              {/* Planter Detail — centered focal point, size-capped so the pods stay a sensible size. */}
+              <div className="relative flex-1 flex flex-col items-center justify-center p-4">
+                <div className="w-full max-w-sm">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-semibold text-white">3×3 Grow Bed</div>
+                    <div className="text-[11px] text-slate-400">Click a row to plant {activeCrop.name}</div>
                   </div>
-                  <div className="text-[11px] font-mono text-slate-400">Click a row to plant {activeCrop.name}</div>
-                </div>
 
-                <div className="rounded-xl border border-slate-200/60 bg-[#f6f7ee] p-4 shadow-inner space-y-3">
-                  {[0, 1, 2].map(row => {
-                    const isActiveRow = activeRow === row;
-                    const rowSlots = plants.slice(row * 3, row * 3 + 3);
-                    return (
-                      <div key={row} className="relative">
-                        <div className="flex items-center justify-between mb-1.5 px-0.5">
-                          <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">{rows[row].name}</span>
-                          <span className="text-[10px] font-mono text-slate-500">{rowOccupancy(row)}/3</span>
+                  <div className="rounded-xl border border-slate-200/60 bg-[#f6f7ee] p-3 shadow-inner space-y-2">
+                    {[0, 1, 2].map(row => {
+                      const isActiveRow = activeRow === row;
+                      // The active row is indicated by recolouring its pots' outer ring (blue selection
+                      // colour) instead of a background box — inactive rows keep the terracotta rim.
+                      const ringColor = isActiveRow ? '#60a5fa' : '#d16a55';
+                      const rowSlots = plants.slice(row * 3, row * 3 + 3);
+                      return (
+                        <div key={row} className="relative">
+                          <div className="flex items-center justify-between mb-1.5 px-0.5">
+                            <span className={`text-[10px] font-medium uppercase tracking-wide ${isActiveRow ? 'text-slate-700 font-semibold' : 'text-slate-500'}`}>{rows[row].name}</span>
+                            <span className="text-[10px] font-mono text-slate-500">{rowOccupancy(row)}/3</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-3">
+                            {rowSlots.map((slot, colIdx) => {
+                              const globalIdx = row * 3 + colIdx;
+                              const planterId = `crop${globalIdx + 1}`;
+                              return (
+                                <div key={planterId} id={planterId} className="relative flex flex-col items-center">
+                                  <button
+                                    onClick={() => handlePlanterClick(row)}
+                                    className={`relative aspect-square w-full rounded-full transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 flex items-center justify-center ${isRunning && slot === 'empty' ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                                    aria-label={`${planterId}, ${slot === 'empty' ? 'empty' : slot}`}
+                                    style={{
+                                      backgroundColor: '#5b3a2c',
+                                      boxShadow: slot !== 'empty'
+                                        ? `0 0 0 6px ${ringColor}, inset 0 0 0 2px rgba(0,0,0,0.05)`
+                                        : `0 0 0 ${isActiveRow ? '5px' : '3px'} ${ringColor}`,
+                                      opacity: slot !== 'empty' ? 1 : 0.65,
+                                    }}
+                                  >
+                                    {slot !== 'empty' && (
+                                      <img
+                                        src={`/${slot}.svg`}
+                                        alt={slot}
+                                        className="w-3/5 h-3/5 object-contain pointer-events-none"
+                                      />
+                                    )}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-3">
-                          {rowSlots.map((slot, colIdx) => {
-                            const globalIdx = row * 3 + colIdx;
-                            const planterId = `crop${globalIdx + 1}`;
-                            return (
-                              <div key={planterId} id={planterId} className="relative flex flex-col items-center">
-                                <button
-                                  onClick={() => handlePlanterClick(row)}
-                                  className={`relative aspect-square w-full rounded-full transition-transform duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 flex items-center justify-center ${isRunning && slot === 'empty' ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-                                  aria-label={`${planterId}, ${slot === 'empty' ? 'empty' : slot}`}
-                                  style={{
-                                    backgroundColor: '#5b3a2c',
-                                    boxShadow: slot !== 'empty'
-                                      ? '0 0 0 6px #d16a55, inset 0 0 0 2px rgba(0,0,0,0.05)'
-                                      : isActiveRow
-                                      ? '0 0 0 5px #60a5fa'
-                                      : '0 0 0 3px #d16a55',
-                                    opacity: slot !== 'empty' ? 1 : 0.65,
-                                  }}
-                                >
-                                  {slot !== 'empty' && (
-                                    <img
-                                      src={`/${slot}.svg`}
-                                      alt={slot}
-                                      className="w-3/5 h-3/5 object-contain pointer-events-none"
-                                    />
-                                  )}
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        {rowSlots.some(s => s !== 'empty') && (
-                          <button
-                            onClick={() => handleViewChart(row)}
-                            className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-950/40 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:border-emerald-400/50 hover:text-emerald-200 transition-colors"
-                          >
-                            <LineChartIcon size={14} /> View Chart
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {cropConfirmation && (
-                  <div className="mt-2 text-center text-xs font-medium text-emerald-400 bg-emerald-950/50 border border-emerald-800 rounded-lg py-2 px-3">
-                    {cropConfirmation}
+                      );
+                    })}
                   </div>
-                )}
+
+                  {/* One View Chart action for the ACTIVE row — shown only when that row is planted.
+                      Opens /dashboard/simulation for the active row (the chart page itself is unchanged). */}
+                  {rowOccupancy(activeRow) > 0 && (
+                    <button
+                      onClick={() => handleViewChart(activeRow)}
+                      className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-950/40 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:border-emerald-400/50 hover:text-emerald-200 transition-colors"
+                    >
+                      <LineChartIcon size={14} /> View Chart — {rows[activeRow].name}
+                    </button>
+                  )}
+
+                  {cropConfirmation && (
+                    <div className="mt-2 text-center text-xs font-medium text-emerald-400 bg-emerald-950/50 border border-emerald-800 rounded-lg py-2 px-3">
+                      {cropConfirmation}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
             {/* Alerts Console */}
-            <div role="status" aria-live="polite" className="h-32 bg-black/40 border border-slate-800 rounded-lg p-3 overflow-y-auto font-mono text-xs">
+            <div role="status" aria-live="polite" className="h-32 bg-black/40 border border-slate-800 rounded-lg p-3 overflow-y-auto text-xs">
               <div className="sticky top-0 bg-slate-950/90 border-b border-slate-800 pb-1 mb-2 flex justify-between items-center">
-                 <span className="font-bold text-slate-400 uppercase">System Log</span>
+                 <span className="font-bold text-slate-400 uppercase tracking-wider">System Log</span>
                  {alerts.length > 0 && <span className="text-red-400 animate-pulse flex items-center gap-1"><AlertTriangle size={10}/> Attention Needed</span>}
               </div>
               {alerts.length === 0 ? (
                 <div className="text-slate-600 italic p-2">System Nominal. No active alerts.</div>
               ) : (
-                <div className="space-y-1">
+                <div className="space-y-1 font-mono">
                    {alerts.map(alert => (
                      <div key={alert.id} className={`p-2 rounded border-l-2 ${alert.type === 'critical' ? 'bg-red-500/10 border-red-500 text-red-200' : 'bg-yellow-500/10 border-yellow-500 text-yellow-200'}`}>
                         <span className="font-bold mr-2">[{new Date().toLocaleTimeString()}]</span>
@@ -636,10 +655,14 @@ export default function DashboardPage() {
                <MetricGauge label="CO2 (ppm)" value={params.co2} unit="" min={300} max={1200} optimal={activeOptimal.co2} />
             </Card>
 
-            <Card title={`Harvest Quality — ${rows[activeRow].name}`} className="relative overflow-hidden">
-               {/* Source Badge — reflects whether the number came from the dataset endpoint or the local fallback */}
-               <div className="absolute top-3 right-3 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">
-                  <Cpu size={10} /> {predictionByRow[activeRow] ? 'Engine' : 'Local'}
+            <Card className="relative overflow-hidden">
+               {/* Header row: title + source badge side by side (badge no longer absolutely
+                   positioned, so it can't overlap the row name in the title). */}
+               <div className="flex items-start justify-between gap-2 mb-3">
+                  <h3 className="text-slate-400 text-xs font-bold uppercase tracking-wider truncate">Harvest Quality — {rows[activeRow].name}</h3>
+                  <div className="shrink-0 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">
+                     <Cpu size={10} /> {predictionByRow[activeRow] ? 'Engine' : 'Local'}
+                  </div>
                </div>
 
                {(() => {

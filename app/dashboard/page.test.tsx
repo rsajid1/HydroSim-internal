@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import DashboardPage from "./page";
 import { SimulationProvider } from "./SimulationProvider";
 
@@ -260,12 +260,10 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
     });
   };
 
-  /** Plant lettuce in shelf 0 so `hasPlantedCrop` is true and a prediction is fetched. */
+  /** Plant lettuce in shelf 0 so a prediction is fetched. Single-crop session: clicking an
+   *  empty planter plants the active crop directly (lettuce is the default), no crop picker. */
   const plantLettuce = async () => {
     await click(/crop1, empty/i);
-    // The dropdown entry's accessible name is "lettuceLettuce" — the <img alt> runs straight
-    // into the label with no separator — so match on a substring, not the visible text.
-    await click(/lettuce/i);
   };
 
   const tick = async (times: number) => {
@@ -429,9 +427,10 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
 
 // ---------------------------------------------------------------------------
 // Per-row independence & growth charts
-// Each row is its own crop and its own simulation now — planting two different
-// crops must NOT share one global growth/health number, and a crop change on
-// one row must not disturb the clock or any other row.
+// A session is single-crop now (all rows hold the crop picked in the Crop Type
+// selector), but each row is still its OWN simulation — rows planted at different
+// times must not share one global growth number. Changing the crop re-plants every
+// row and resets the run; the header Reset zeroes the clock and all rows.
 // ---------------------------------------------------------------------------
 describe("DashboardPage - per-row independence & growth charts", () => {
   const PREDICT_DEBOUNCE_MS = 300;
@@ -476,23 +475,11 @@ describe("DashboardPage - per-row independence & growth charts", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS); });
   };
 
-  /** Clicks a crop option inside the open dropdown, scoped to #cropSelect — once a crop
-   *  is planted in some row, its pods' aria-labels (e.g. "crop4, tomato") also match a
-   *  loose /tomato/i text search, so an unscoped click becomes ambiguous. */
-  const clickCropOption = async (crop: 'lettuce' | 'tomato') => {
-    const dropdown = document.getElementById('cropSelect')!;
-    await act(async () => {
-      fireEvent.click(within(dropdown).getByRole('button', { name: new RegExp(crop, 'i') }));
-      await vi.advanceTimersByTimeAsync(0);
-    });
-  };
-
-  /** Plants lettuce in row 0 (pods crop1-3) and tomato in row 1 (pods crop4-6). */
+  /** Plants the session crop (lettuce by default) into row 0 (crop1-3) and row 1 (crop4-6).
+   *  Single-crop session: clicking an empty planter plants the active crop — no per-row picker. */
   const plantTwoRows = async () => {
     await click(/crop1, empty/i);
-    await clickCropOption('lettuce');
     await click(/crop4, empty/i);
-    await clickCropOption('tomato');
   };
 
   beforeEach(() => {
@@ -503,61 +490,64 @@ describe("DashboardPage - per-row independence & growth charts", () => {
     vi.useRealTimers();
   });
 
-  it("two rows with different crops grow independently, not from one shared number", async () => {
-    mockFetchByCrop({
-      lettuce: predictionBody(1.0, 45),
-      tomatoes: predictionBody(1.0, 120),
-    });
+  it("each planted row tracks its own growth (rows are independent)", async () => {
+    // Same crop in both rows now, so to observe independence we plant them at different
+    // times: row 0 runs first, then (paused) row 1 is planted and both run together, so
+    // row 1 stays strictly behind. A single shared growth number could not show this.
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => predictionBody(1.0, 45) });
     renderDashboard();
-    await plantTwoRows();
+
+    await click(/crop1, empty/i);      // plant row 0 (lettuce)
     await settle();
-
     await click(/simulate/i);
-    await tick(10);
+    await tick(10);                    // row 0 → 5.55% → 5%
 
-    // plantTwoRows() leaves row 1 (tomato) active — switch to row 0 to check it.
+    await click(/pause/i);             // planting is blocked while running — pause first
+    await click(/crop4, empty/i);      // plant row 1 (starts now); also selects row 1
+    await settle();
+    await click(/simulate/i);
+    await tick(10);                    // row 0 keeps growing; row 1 grows from 0
+
+    // Row 1 is active (planting it selected it) and lags because it started 10 ticks late.
+    // Match any growth-stage label — row 0 may have crossed from Seedling into Vegetative.
+    const stagePct = /(?:Seedling|Vegetative|Flowering|Harvest) \(\d+%\)/i;
+    const pct = (t: string | null) => Number(t?.match(/\((\d+)%\)/)?.[1] ?? -1);
+    const row1Pct = pct(screen.getByText(stagePct).textContent);
+
+    // Switch to row 0 — it must be strictly further along, proving the two rows don't
+    // share one global growth number (a shared number would read identically here).
     await click(/crop1, lettuce/i);
+    const row0Pct = pct(screen.getByText(stagePct).textContent);
 
-    // Row 0: lettuce, perTick = 100*6/(45*24) = 0.5555…% × 10 → 5%.
-    expect(screen.getByText(/Seedling \(5%\)/i)).toBeInTheDocument();
-
-    // Switch to row 1 by clicking its (already planted) pod — same crop identity, no reset.
-    await click(/crop4, tomato/i);
-
-    // Row 1: tomato, perTick = 100*6/(120*24) = 0.2083…% × 10 → 2%. If both rows shared one
-    // global growth number, this would still read 5%.
-    expect(screen.getByText(/Seedling \(2%\)/i)).toBeInTheDocument();
+    expect(row0Pct).toBeGreaterThan(row1Pct);
   });
 
-  it("changing a planted row's crop resets only that row, not the clock or other rows", async () => {
+  it("changing the crop re-plants every row to the new crop and resets the run", async () => {
+    // Single-crop session: switching the Crop Type selector re-plants ALL occupied rows to
+    // the new crop and resets the run (a different plant), replacing the old per-row picker.
     mockFetchByCrop({
       lettuce: predictionBody(1.0, 45),
       tomatoes: predictionBody(1.0, 120),
     });
     renderDashboard();
-    await plantTwoRows();
+    await plantTwoRows();              // both rows lettuce
     await settle();
 
     await click(/simulate/i);
     await tick(10);
-
-    // Switch to row 0 (plantTwoRows() leaves row 1 active) and open its dropdown —
-    // the same click both selects row 0 for viewing and opens the reassignment picker.
-    await click(/crop1, lettuce/i);
-    expect(screen.getByText(/Seedling \(5%\)/i)).toBeInTheDocument(); // row 0 progressed
     expect(screen.getByText(/60 hours/i)).toBeInTheDocument();
 
-    // Reassign row 0 from lettuce to tomato — a real crop change on an occupied row.
-    await clickCropOption('tomato');
+    // Pause first — the Crop Type selector is disabled while running.
+    await click(/pause/i);
+    await act(async () => {
+      fireEvent.change(screen.getByRole("combobox", { name: /crop type/i }), { target: { value: "tomatoes" } });
+      await vi.advanceTimersByTimeAsync(PREDICT_DEBOUNCE_MS);
+    });
 
-    // Row 0 restarted...
-    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument();
-    // ...but the shared clock kept its value, it was not zeroed.
-    expect(screen.getByText(/60 hours/i)).toBeInTheDocument();
-
-    // Row 1 (tomato, never touched) kept its own progress.
-    await click(/crop4, tomato/i);
-    expect(screen.getByText(/Seedling \(2%\)/i)).toBeInTheDocument();
+    // Run reset (clock zeroed) and every row now holds tomato.
+    expect(screen.getByText(/0 hours/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /crop1, tomato/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /crop4, tomato/i })).toBeInTheDocument();
   });
 
   it("the header Reset button still resets the clock and every row", async () => {
@@ -566,7 +556,7 @@ describe("DashboardPage - per-row independence & growth charts", () => {
       tomatoes: predictionBody(1.0, 120),
     });
     renderDashboard();
-    await plantTwoRows();
+    await plantTwoRows();              // both rows lettuce (the session crop)
     await settle();
 
     await click(/simulate/i);
@@ -576,9 +566,9 @@ describe("DashboardPage - per-row independence & growth charts", () => {
     await click(/reset simulation/i);
 
     expect(screen.getByText(/0 hours/i)).toBeInTheDocument();
-    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument(); // row 0 (active)
-    await click(/crop4, tomato/i);
-    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument(); // row 1 too
+    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument(); // active row
+    await click(/crop1, lettuce/i);
+    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument(); // row 0 too
   });
 
   it("shows a View Chart button once a row is planted, not before", async () => {
@@ -587,16 +577,14 @@ describe("DashboardPage - per-row independence & growth charts", () => {
     renderDashboard();
     expect(screen.queryByRole("button", { name: /view chart/i })).not.toBeInTheDocument();
 
-    await click(/crop1, empty/i);
-    await clickCropOption('lettuce');
+    await click(/crop1, empty/i);      // plant the session crop
 
     expect(screen.getByRole("button", { name: /view chart/i })).toBeInTheDocument();
   });
 
   it("clicking View Chart navigates to /dashboard/simulation", async () => {
     renderDashboard();
-    await click(/crop1, empty/i);
-    await clickCropOption('lettuce');
+    await click(/crop1, empty/i);      // plant the session crop
 
     await click(/view chart/i);
 

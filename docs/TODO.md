@@ -1,8 +1,8 @@
 # HydroSim — TODO: frontend UX & simulation flow
 
 The engine and system work is done and merged (see `docs/CHANGELOG.md`). The current focus is the
-**frontend simulation flow and UX**: locking the pre-run setup, making a session single-crop, hiding
-setup once a run is live, handling failure states, and letting users save and compare multiple runs.
+**frontend simulation flow and UX**: locking the pre-run setup, making a session single-crop, polishing
+and unifying the UI, handling failure states, and letting users save and compare multiple runs.
 
 Pending items are ordered best-first (foundational / low-effort first) and split into **Features** and
 **Bugs**; bugs that are the flip side of a feature are cross-linked to avoid double work. The
@@ -33,41 +33,48 @@ Related docs: [`docs/engine.md`](engine.md) · [`docs/simulation.md`](simulation
 
    Verified: frontend lint 0 errors.
 
+3. **Collapsible sidebar** — a persisted collapse/expand toggle (chevrons) on the left nav; at `md+` the
+   sidebar animates between full (`w-64`) and icon-only (`w-16`), hiding all labels and centering icons
+   when collapsed. Choice saved to `localStorage`, applied after mount (hydration-safe). Below `md` it
+   stays icon-only as before.
+
+4. **UI polish & unification** (design system unchanged — spacing / typography / alignment only):
+   - **Real badge/title overlap fixed** — the "Engine/Local" badge is now inline beside the (truncating)
+     "Harvest Quality" title instead of absolutely positioned over it. *(The "N over Project Status"
+     overlap turned out to be the **Next.js dev-tools indicator**, not our UI — dev-only, so not fixed in
+     layout.)*
+   - **Control readout merged** — each slider shows one readout (current value + muted "Target X"); the
+     redundant read-only number box is gone and the slider is full-width.
+   - **Visualization header rebuilt** — the cramped wrapping line is now a status bar (section label on
+     the left, stage / health / clock pushed right, wrapping as whole units).
+   - **Viz column balanced** — the three row cards flex-grow to fill the panel height, so the middle
+     column reads as a full grow-bed rather than a small block floating in empty grid space.
+   - **Typography** — de-monospaced prose (planter hint, System Log heading); monospace kept for numeric
+     readouts and the log lines.
+   - **Spacing** — removed a stray no-op `flex-1`; columns keep the 8px rhythm (gap-4 / gap-6).
+   - Skipped per decision: grow-bed cream→dark restyle (left as-is, treated as intentional).
+
+   Verified: 48 frontend tests pass, lint 0 errors. (Also updated the dashboard tests that still drove
+   the removed crop-choice popup / mixed-crop-per-row behaviour to the single-crop flow.)
+
+5. **Visualization column refactor** (reference-driven — the "noodle" segmented pill):
+   - Replaced the two-pane split (growth-stage cards | planter) with a **vertical stack**: a unified
+     horizontal **status chip** on top + the **Planter Detail centered** below.
+   - **Status chip** — a dark-themed pill for the active row with thin `|` dividers: `🌱 {Row}` │
+     `{Stage} ({%})` │ `Health {%}` (health-colored) │ `{n} Hours`. Removed the old growth-stage header
+     and the Top/Middle/Bottom row-switcher cards.
+   - **Planter centered & size-capped** (`max-w-sm`) so pods stay sensible; the active row is now
+     highlighted (emerald ring/label) since the planter is the row switcher.
+   - **View Chart consolidated** — the three per-row buttons became **one** "View Chart — {Row}" for the
+     active row (rendered only when it's planted). The chart page (`/dashboard/simulation`) is unchanged.
+
+   Verified: 48 frontend tests pass, lint 0 errors.
+
 ---
 
 ## ⏳ Pending — Features
 
-1. **Hide technique selection once a run is live**
-   When the simulation is running, hide the sidebar nav and the **System Setup** panel (crop +
-   architecture selectors). Keep **visualization, telemetry, environment controls, harvest-quality,
-   and instructions** visible — the environment controls stay so the user can still react during a run,
-   and the telemetry's "Target" already shifts per stage to hint what to adjust. Restore the hidden
-   panels on pause/reset.
-
-   > Stage-change hints come from telemetry, not a pop-up: the gauges already show the engine's
-   > stage-aware `optimal` as a moving "Target", so the user reads what to change straight from
-   > telemetry. (The earlier stage-change pop-up idea is dropped as redundant.)
-
-2. **UI polish & unification** — *keep the current design system* (dark slate theme, blue accent, card
-   style); this is **spacing / typography / alignment** only. Best done after feature 1, since it
-   changes what's on screen during a run. Concrete fixes seen in the current dashboard:
-   - **Fix two overlap bugs:** the sidebar footer avatar ("N") overlaps the "Project Status / System
-     Online" text, and the "Local" source badge overlaps the "Harvest Quality — Top Row" card title.
-   - **Unify typography:** labels/headers mix monospace and sans (growth-stage header, "Click a row to
-     plant …", "System Log", "0 Hours"). Define one type scale; reserve monospace for numeric/data
-     readouts only.
-   - **Rebuild the visualization header:** "Growth Stage — Top Row / Seedling (0%) / Health 100% /
-     0 Hours" wraps into cramped stacked fragments — lay it out as one aligned status bar.
-   - **Balance the visualization column:** it leaves a large empty dark region; equalize column heights
-     and center/fill the content so the three columns feel intentional, not lopsided.
-   - **Enforce one spacing grid & align cards:** card paddings and gutters vary and the three columns
-     don't share a top baseline — put everything on an 8px grid with card headers aligned across columns.
-   - **Reduce control noise:** each slider shows both a "Target: X" pill and a separate numeric input —
-     unify so the target and the current value aren't visually redundant.
-   - **Reconcile the grow-bed panel:** the cream/beige planter clashes with the dark theme — restyle or
-     deliberately frame it so it reads as part of the same system.
-
-3. **Simulation failure states** (partly present — extend it)
+1. **Simulation failure states** (partly present — extend it)
    The death latch already exists (`plantDeadByRow`, health→0 = "DEAD"). Build out the failure UX:
    - **Deviation-with-grace**: when controls sit far outside the current stage's optimal range, warn and
      give the user a short window to react before health damage compounds.
@@ -76,7 +83,7 @@ Related docs: [`docs/engine.md`](engine.md) · [`docs/simulation.md`](simulation
    - **Visualize dying plants**: reflect low health / death in the visualization (wilting/dead plant),
      driven by the per-row yield/health rate.
 
-4. **Compare Scenarios — save & compare multiple runs** (GitHub issue #10)
+2. **Compare Scenarios — save & compare multiple runs** (GitHub issue #10)
    Let users save completed runs and compare 2–3 side by side (final yield, average stress, time to
    harvest, time out of range, env averages) so instructors/learners see how configurations performed.
 
@@ -137,7 +144,7 @@ Related docs: [`docs/engine.md`](engine.md) · [`docs/simulation.md`](simulation
 
 - **3D plant-growth visualization.** Replace/augment the 2D planter with an accurate 3D view of plant
   growth, and show health visually (plant thriving vs. dying / simulation failure). Pairs with the
-  dying-plant visuals in feature 3.
+  dying-plant visuals in feature 1 (Simulation failure states).
 
 ---
 

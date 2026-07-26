@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import SimulationChartPage from "./page";
 import DashboardPage from "../page";
 import { SimulationProvider } from "../SimulationProvider";
@@ -84,14 +84,6 @@ describe("Cross-page live simulation", () => {
     });
   };
 
-  const clickCropOption = async (crop: 'lettuce' | 'tomato') => {
-    const dropdown = document.getElementById('cropSelect')!;
-    await act(async () => {
-      fireEvent.click(within(dropdown).getByRole('button', { name: new RegExp(crop, 'i') }));
-      await vi.advanceTimersByTimeAsync(0);
-    });
-  };
-
   const tick = async (times: number) => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1000 * times); });
   };
@@ -125,8 +117,8 @@ describe("Cross-page live simulation", () => {
 
     const { rerender } = render(<Harness showChart={false} />);
 
+    // Single-crop session: clicking an empty planter plants the active crop (lettuce by default).
     await click(/crop1, empty/i);
-    await clickCropOption('lettuce');
     await settle();
     await click(/simulate/i);
     await tick(5);

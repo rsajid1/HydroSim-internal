@@ -1,5 +1,16 @@
 # Changelog
 > Please note, PR links are not available for changes below as they are on private repository or not committed. Changes implemented after May 12, 2026 will include PR links. 
+## 2026-07-26
+
+Frontend UX & visual polish pass on the dashboard (`feature_cleanups`) — a single-crop session, a collapsible sidebar, and a reworked middle visualization column. No engine changes; 48 frontend tests pass and lint is clean.
+
+- **Single-crop session + locked setup** — a session is now one crop and one system, chosen before the run and locked (selectors disabled) while it runs. Clicking an empty planter plants the session crop directly (the per-rack crop popup is gone), and changing the Crop Type re-plants every row and resets. Planting is blocked mid-run, fixing the mixed-crop and mid-run-restart bugs (`app/dashboard/page.tsx`, `app/dashboard/SimulationProvider.tsx`).
+- **"Harvest Quality" rename** — the AI card title "AI Yield Prediction" is now "Harvest Quality — {row}" for consistent wording. Internal field names are unchanged.
+- **Collapsible sidebar** — a toggle shrinks the left nav to icon-only (`w-16`) or full (`w-64`) at `md+`, animated and persisted to `localStorage`, giving the visualization more room on demand.
+- **UI polish** — merged each slider's redundant "Target" pill and number box into one readout, fixed the source badge overlapping the Harvest Quality title, rebuilt the cramped growth-stage header, and de-monospaced prose. Design system unchanged (spacing / typography / alignment only).
+- **Visualization column refactor** — replaced the two-pane split with a centred, size-capped 3×3 planter under a unified horizontal status chip (row · stage · health · clock). The three per-row View Chart buttons became one "View Chart — {row}" for the active row, and the active row is shown by recolouring its pots' outer ring (blue) rather than a background box.
+- **Environment Controls blurb → info tooltip** — the "settings are global…" paragraph moved from the card body into a small info icon beside the header, shown on hover/focus (CSS tooltip, no popup), decluttering the controls panel.
+
 ## 2026-07-19
 
 Engine and dashboard reconciled to a single source of truth, made **stage-aware**, and the environment controls fixed. Work on the `feature_cleanups` branch; ML training and dataset integration were dropped — the AGC dataset + `data_processing/` pipeline now stand only as a research/thesis attachment (see `docs/TODO.md`).
