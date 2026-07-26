@@ -62,7 +62,6 @@ interface ControlSliderProps {
   max: number;
   step: number;
   onChange?: (value: number) => void;
-  optimal: number;
   readOnly?: boolean;
 }
 
@@ -113,7 +112,7 @@ const MetricGauge: React.FC<MetricGaugeProps> = ({ label, value, unit, min, max,
   );
 };
 
-const ControlSlider: React.FC<ControlSliderProps> = ({ label, icon, value, min, max, step, onChange, optimal, readOnly = false }) => {
+const ControlSlider: React.FC<ControlSliderProps> = ({ label, icon, value, min, max, step, onChange, readOnly = false }) => {
   const id = React.useId();
   return (
     <div className="mb-4 group">
@@ -122,12 +121,9 @@ const ControlSlider: React.FC<ControlSliderProps> = ({ label, icon, value, min, 
           {icon} {label}
           {readOnly && <span className="text-[10px] text-slate-500 normal-case font-normal">(status only)</span>}
         </label>
-        {/* Merged readout: current value (prominent) + target (muted) — replaces the separate
-            "Target" pill and read-only number box, which duplicated the same information. */}
-        <span className="font-mono text-xs whitespace-nowrap">
-          <span className="text-blue-400 font-bold">{value.toFixed(1)}</span>
-          <span className="text-slate-500 ml-1.5">Target {optimal}</span>
-        </span>
+        {/* Current value only — the optimal "Target" marker lives on the Real-time Telemetry
+            gauges, so repeating it on the sliders was redundant. */}
+        <span className="font-mono text-xs font-bold text-blue-400 whitespace-nowrap">{value.toFixed(1)}</span>
       </div>
       <input
         id={id}
@@ -483,7 +479,6 @@ export default function DashboardPage() {
                   icon={<Droplets size={14} />}
                   value={params.ph}
                   min={4.0} max={8.0} step={0.1}
-                  optimal={activeOptimal.ph}
                   onChange={(v) => setParams({...params, ph: v})}
                />
                <ControlSlider
@@ -491,7 +486,6 @@ export default function DashboardPage() {
                   icon={<Activity size={14} />}
                   value={params.ec}
                   min={0.5} max={4.0} step={0.1}
-                  optimal={activeOptimal.ec}
                   onChange={(v) => setParams({...params, ec: v})}
                />
                <ControlSlider
@@ -499,7 +493,6 @@ export default function DashboardPage() {
                   icon={<Thermometer size={14} />}
                   value={params.temp}
                   min={10} max={40} step={0.5}
-                  optimal={activeOptimal.temp}
                   onChange={(v) => setParams({...params, temp: v})}
                />
                <ControlSlider
@@ -507,7 +500,6 @@ export default function DashboardPage() {
                   icon={<Wind size={14} />}
                   value={params.humidity}
                   min={0} max={100} step={1}
-                  optimal={activeOptimal.humidity}
                   onChange={(v) => setParams({...params, humidity: v})}
                />
                <ControlSlider
@@ -515,7 +507,6 @@ export default function DashboardPage() {
                   icon={<Wind size={14} />}
                   value={params.co2}
                   min={300} max={1200} step={10}
-                  optimal={activeOptimal.co2} // stage-aware: engine CROP_PROFILES + stage_targets (shifts by growth stage)
                   onChange={(v) => setParams({...params, co2: v})}
                />
             </Card>
@@ -523,104 +514,98 @@ export default function DashboardPage() {
 
           {/* --- COLUMN 2: VISUALIZATION (DIGITAL TWIN) --- */}
           <div className="lg:col-span-6 flex flex-col gap-4">
-            {/* Garden Planter View */}
-            <div className="flex-1 bg-slate-900 rounded-lg border border-slate-800 overflow-hidden flex flex-col relative">
-              {/* Dotted grid backdrop behind the whole panel. */}
-              <div className="absolute inset-0 bg-grid-pattern opacity-30 pointer-events-none"></div>
-
-              {/* Status chip — one unified horizontal pill for the ACTIVE row (row · stage · health ·
-                  clock), thin dividers between segments. Replaces the old growth-stage header and the
-                  Top/Middle/Bottom row-switcher cards; the planter below is now the row switcher. */}
-              <div className="relative flex justify-center px-4 pt-4">
-                <div className="inline-flex items-center gap-3 rounded-full border border-slate-700/80 bg-slate-900/70 backdrop-blur px-4 py-2 text-xs shadow-md shadow-black/20 ring-1 ring-inset ring-white/5 max-w-full overflow-x-auto">
-                  <span className="flex items-center gap-1.5 text-slate-400 uppercase tracking-wide whitespace-nowrap">
-                    <Sprout size={14} className="text-green-400 shrink-0" />
-                    {rows[activeRow].name}
-                  </span>
-                  <span className="w-px h-4 bg-slate-600/60 shrink-0" />
-                  <span className="text-white font-semibold whitespace-nowrap">{getGrowthLabel(growthStageByRow[activeRow])} ({Math.floor(growthStageByRow[activeRow])}%)</span>
-                  <span className="w-px h-4 bg-slate-600/60 shrink-0" />
-                  <span className={`font-semibold whitespace-nowrap ${plantDeadByRow[activeRow] ? 'text-red-500' : healthByRow[activeRow] >= 0.7 ? 'text-green-400' : healthByRow[activeRow] >= 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
-                    {plantDeadByRow[activeRow] ? 'DEAD' : `Health ${Math.round(healthByRow[activeRow] * 100)}%`}
-                  </span>
-                  <span className="w-px h-4 bg-slate-600/60 shrink-0" />
-                  <span className="font-mono text-slate-300 whitespace-nowrap">{simulationTime} Hours</span>
-                </div>
+            {/* Status chip — isolated, compact, elevated pill for the ACTIVE row (row · stage · health ·
+                clock). No wrapping panel: it floats on the page background above the grow bed. */}
+            <div className="flex justify-center">
+              <div className="inline-flex items-center gap-3 rounded-full border border-slate-700/80 bg-slate-900/90 px-5 py-2.5 text-sm shadow-lg shadow-black/40 ring-1 ring-inset ring-white/5 max-w-full overflow-x-auto">
+                <span className="flex items-center gap-1.5 text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                  <Sprout size={15} className="text-green-400 shrink-0" />
+                  {rows[activeRow].name}
+                </span>
+                <span className="w-px h-4 bg-slate-600/60 shrink-0" />
+                <span className="text-white font-semibold whitespace-nowrap">{getGrowthLabel(growthStageByRow[activeRow])} ({Math.floor(growthStageByRow[activeRow])}%)</span>
+                <span className="w-px h-4 bg-slate-600/60 shrink-0" />
+                <span className={`font-semibold whitespace-nowrap ${plantDeadByRow[activeRow] ? 'text-red-500' : healthByRow[activeRow] >= 0.7 ? 'text-green-400' : healthByRow[activeRow] >= 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
+                  {plantDeadByRow[activeRow] ? 'DEAD' : `Health ${Math.round(healthByRow[activeRow] * 100)}%`}
+                </span>
+                <span className="w-px h-4 bg-slate-600/60 shrink-0" />
+                <span className="font-mono text-slate-300 whitespace-nowrap">{simulationTime} Hours</span>
               </div>
+            </div>
 
-              {/* Planter Detail — centered focal point, size-capped so the pods stay a sensible size. */}
-              <div className="relative flex-1 flex flex-col items-center justify-center p-4">
-                <div className="w-full max-w-sm">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm font-semibold text-white">3×3 Grow Bed</div>
-                    <div className="text-[11px] text-slate-400">Click a row to plant {activeCrop.name}</div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200/60 bg-[#f6f7ee] p-3 shadow-inner space-y-2">
-                    {[0, 1, 2].map(row => {
-                      const isActiveRow = activeRow === row;
-                      // The active row is indicated by recolouring its pots' outer ring (blue selection
-                      // colour) instead of a background box — inactive rows keep the terracotta rim.
-                      const ringColor = isActiveRow ? '#60a5fa' : '#d16a55';
-                      const rowSlots = plants.slice(row * 3, row * 3 + 3);
-                      return (
-                        <div key={row} className="relative">
-                          <div className="flex items-center justify-between mb-1.5 px-0.5">
-                            <span className={`text-[10px] font-medium uppercase tracking-wide ${isActiveRow ? 'text-slate-700 font-semibold' : 'text-slate-500'}`}>{rows[row].name}</span>
-                            <span className="text-[10px] font-mono text-slate-500">{rowOccupancy(row)}/3</span>
-                          </div>
-                          <div className="grid grid-cols-3 gap-3">
-                            {rowSlots.map((slot, colIdx) => {
-                              const globalIdx = row * 3 + colIdx;
-                              const planterId = `crop${globalIdx + 1}`;
-                              return (
-                                <div key={planterId} id={planterId} className="relative flex flex-col items-center">
-                                  <button
-                                    onClick={() => handlePlanterClick(row)}
-                                    className={`relative aspect-square w-full rounded-full transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 flex items-center justify-center ${isRunning && slot === 'empty' ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-                                    aria-label={`${planterId}, ${slot === 'empty' ? 'empty' : slot}`}
-                                    style={{
-                                      backgroundColor: '#5b3a2c',
-                                      boxShadow: slot !== 'empty'
-                                        ? `0 0 0 6px ${ringColor}, inset 0 0 0 2px rgba(0,0,0,0.05)`
-                                        : `0 0 0 ${isActiveRow ? '5px' : '3px'} ${ringColor}`,
-                                      opacity: slot !== 'empty' ? 1 : 0.65,
-                                    }}
-                                  >
-                                    {slot !== 'empty' && (
-                                      <img
-                                        src={`/${slot}.svg`}
-                                        alt={slot}
-                                        className="w-3/5 h-3/5 object-contain pointer-events-none"
-                                      />
-                                    )}
-                                  </button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* One View Chart action for the ACTIVE row — shown only when that row is planted.
-                      Opens /dashboard/simulation for the active row (the chart page itself is unchanged). */}
-                  {rowOccupancy(activeRow) > 0 && (
-                    <button
-                      onClick={() => handleViewChart(activeRow)}
-                      className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-950/40 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:border-emerald-400/50 hover:text-emerald-200 transition-colors"
-                    >
-                      <LineChartIcon size={14} /> View Chart — {rows[activeRow].name}
-                    </button>
-                  )}
-
-                  {cropConfirmation && (
-                    <div className="mt-2 text-center text-xs font-medium text-emerald-400 bg-emerald-950/50 border border-emerald-800 rounded-lg py-2 px-3">
-                      {cropConfirmation}
-                    </div>
-                  )}
+            {/* Grow bed — isolated, elevated tray centered on the page background (no wrapping slate
+                panel). Size-capped smaller so it doesn't dominate the column. */}
+            <div className="flex-1 flex flex-col items-center justify-center">
+              <div className="w-full max-w-[340px]">
+                <div className="flex items-center justify-between mb-2 px-0.5">
+                  <div className="text-xs font-semibold text-white uppercase tracking-wide">3×3 Grow Bed</div>
+                  <div className="text-[10px] text-slate-400">Click a row to plant {activeCrop.name}</div>
                 </div>
+
+                <div className="rounded-2xl border border-black/10 bg-[#f6f7ee] p-3 space-y-2 shadow-xl shadow-black/40 ring-1 ring-black/5">
+                  {[0, 1, 2].map(row => {
+                    const isActiveRow = activeRow === row;
+                    // The active row is indicated by recolouring its pots' outer ring (blue selection
+                    // colour) instead of a background box — inactive rows keep the terracotta rim.
+                    const ringColor = isActiveRow ? '#60a5fa' : '#d16a55';
+                    const rowSlots = plants.slice(row * 3, row * 3 + 3);
+                    return (
+                      <div key={row} className="relative">
+                        <div className="flex items-center justify-between mb-1 px-0.5">
+                          <span className={`text-[9px] font-medium uppercase tracking-wide ${isActiveRow ? 'text-slate-700 font-semibold' : 'text-slate-500'}`}>{rows[row].name}</span>
+                          <span className="text-[9px] font-mono text-slate-500">{rowOccupancy(row)}/3</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2.5">
+                          {rowSlots.map((slot, colIdx) => {
+                            const globalIdx = row * 3 + colIdx;
+                            const planterId = `crop${globalIdx + 1}`;
+                            return (
+                              <div key={planterId} id={planterId} className="relative flex flex-col items-center">
+                                <button
+                                  onClick={() => handlePlanterClick(row)}
+                                  className={`relative aspect-square w-full rounded-full transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 flex items-center justify-center ${isRunning && slot === 'empty' ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                                  aria-label={`${planterId}, ${slot === 'empty' ? 'empty' : slot}`}
+                                  style={{
+                                    backgroundColor: '#5b3a2c',
+                                    boxShadow: slot !== 'empty'
+                                      ? `0 0 0 5px ${ringColor}, inset 0 0 0 2px rgba(0,0,0,0.05)`
+                                      : `0 0 0 ${isActiveRow ? '4px' : '3px'} ${ringColor}`,
+                                    opacity: slot !== 'empty' ? 1 : 0.65,
+                                  }}
+                                >
+                                  {slot !== 'empty' && (
+                                    <img
+                                      src={`/${slot}.svg`}
+                                      alt={slot}
+                                      className="w-3/5 h-3/5 object-contain pointer-events-none"
+                                    />
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* One View Chart action for the ACTIVE row — shown only when that row is planted.
+                    Opens /dashboard/simulation for the active row (the chart page itself is unchanged). */}
+                {rowOccupancy(activeRow) > 0 && (
+                  <button
+                    onClick={() => handleViewChart(activeRow)}
+                    className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-950/40 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:border-emerald-400/50 hover:text-emerald-200 transition-colors"
+                  >
+                    <LineChartIcon size={14} /> View Chart — {rows[activeRow].name}
+                  </button>
+                )}
+
+                {cropConfirmation && (
+                  <div className="mt-2 text-center text-xs font-medium text-emerald-400 bg-emerald-950/50 border border-emerald-800 rounded-lg py-2 px-3">
+                    {cropConfirmation}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -729,11 +714,6 @@ export default function DashboardPage() {
 
       {/* CSS for Animations/Custom Styles */}
       <style>{`
-        .bg-grid-pattern {
-          background-image: linear-gradient(to right, #1e293b 1px, transparent 1px),
-                            linear-gradient(to bottom, #1e293b 1px, transparent 1px);
-          background-size: 40px 40px;
-        }
         @keyframes wave {
           0% { transform: translateX(0); }
           100% { transform: translateX(-50%); }

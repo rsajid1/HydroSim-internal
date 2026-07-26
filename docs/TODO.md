@@ -16,59 +16,19 @@ Related docs: [`docs/engine.md`](engine.md) · [`docs/simulation.md`](simulation
 
 ## ✅ Completed (branch: `feature_cleanups`)
 
-1. **Harvest Quality rename** — the AI card title "AI Yield Prediction — {row}" → **"Harvest Quality —
-   {row}"** (and a stale comment on the chart page). The internal `yieldPrediction` field names are left
-   unchanged (data-layer, not user-facing).
+Brief pointers — see `docs/CHANGELOG.md` (2026-07-25 / 07-26) for the full detail.
 
-2. **Single-crop session + locked setup** (foundational; resolves bugs **B1** and **B2**):
-   - Crop Type + System Architecture selectors are **disabled while `isRunning`** (dimmed + "pause or
-     reset to change" tooltip), so setup can't change mid-run.
-   - The planter is **single-crop**: the per-rack lettuce/tomato choice popup is removed; clicking an
-     empty row plants the **session crop** (`activeCrop`). Changing Crop Type re-plants any occupied
-     rows to the new crop and resets (`replantToCrop`), so the visual can never diverge from the scored
-     crop.
-   - **Planting is a pre-run action**: clicking a planter while running no longer plants (it only selects
-     occupied rows, and empty planters show `cursor-not-allowed`). Fixes a bug where planting another row
-     mid-run restarted the simulation.
+1. **Harvest Quality rename** — AI card title "AI Yield Prediction" → "Harvest Quality — {row}".
+2. **Single-crop session + locked setup** — one crop/system per session, selectors locked while running,
+   single-crop planter (`replantToCrop`), planting blocked mid-run. Resolves bugs **B1** and **B2**.
+3. **Collapsible sidebar** — persisted icon-only ↔ full toggle on the left nav.
+4. **UI / control polish** — removed the sliders' redundant "Target" (the marker lives on telemetry) and
+   number box, fixed the source-badge/title overlap, typography/spacing cleanups.
+5. **Visualization column refactor** — isolated, elevated status chip above a centred, size-capped grow
+   bed; one "View Chart — {row}" for the active row; active row shown via blue pot rings.
+6. **Environment Controls note → info-icon hover tooltip** — decluttered the controls panel.
 
-   Verified: frontend lint 0 errors.
-
-3. **Collapsible sidebar** — a persisted collapse/expand toggle (chevrons) on the left nav; at `md+` the
-   sidebar animates between full (`w-64`) and icon-only (`w-16`), hiding all labels and centering icons
-   when collapsed. Choice saved to `localStorage`, applied after mount (hydration-safe). Below `md` it
-   stays icon-only as before.
-
-4. **UI polish & unification** (design system unchanged — spacing / typography / alignment only):
-   - **Real badge/title overlap fixed** — the "Engine/Local" badge is now inline beside the (truncating)
-     "Harvest Quality" title instead of absolutely positioned over it. *(The "N over Project Status"
-     overlap turned out to be the **Next.js dev-tools indicator**, not our UI — dev-only, so not fixed in
-     layout.)*
-   - **Control readout merged** — each slider shows one readout (current value + muted "Target X"); the
-     redundant read-only number box is gone and the slider is full-width.
-   - **Visualization header rebuilt** — the cramped wrapping line is now a status bar (section label on
-     the left, stage / health / clock pushed right, wrapping as whole units).
-   - **Viz column balanced** — the three row cards flex-grow to fill the panel height, so the middle
-     column reads as a full grow-bed rather than a small block floating in empty grid space.
-   - **Typography** — de-monospaced prose (planter hint, System Log heading); monospace kept for numeric
-     readouts and the log lines.
-   - **Spacing** — removed a stray no-op `flex-1`; columns keep the 8px rhythm (gap-4 / gap-6).
-   - Skipped per decision: grow-bed cream→dark restyle (left as-is, treated as intentional).
-
-   Verified: 48 frontend tests pass, lint 0 errors. (Also updated the dashboard tests that still drove
-   the removed crop-choice popup / mixed-crop-per-row behaviour to the single-crop flow.)
-
-5. **Visualization column refactor** (reference-driven — the "noodle" segmented pill):
-   - Replaced the two-pane split (growth-stage cards | planter) with a **vertical stack**: a unified
-     horizontal **status chip** on top + the **Planter Detail centered** below.
-   - **Status chip** — a dark-themed pill for the active row with thin `|` dividers: `🌱 {Row}` │
-     `{Stage} ({%})` │ `Health {%}` (health-colored) │ `{n} Hours`. Removed the old growth-stage header
-     and the Top/Middle/Bottom row-switcher cards.
-   - **Planter centered & size-capped** (`max-w-sm`) so pods stay sensible; the active row is now
-     highlighted (emerald ring/label) since the planter is the row switcher.
-   - **View Chart consolidated** — the three per-row buttons became **one** "View Chart — {Row}" for the
-     active row (rendered only when it's planted). The chart page (`/dashboard/simulation`) is unchanged.
-
-   Verified: 48 frontend tests pass, lint 0 errors.
+All verified: **48 frontend tests pass, lint 0 errors** (dashboard tests updated to the single-crop flow).
 
 ---
 
