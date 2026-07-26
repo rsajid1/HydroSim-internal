@@ -219,7 +219,16 @@ export default function DashboardPage() {
   // current session crop (activeCrop) into all 3 of its slots. There's no per-row crop
   // choice — the crop comes from the Crop Type selector. Clicking an already-planted row
   // just selects it; clearing a row is done via Reset.
+  //
+  // Planting is a PRE-RUN setup action: once the simulation is running, clicking an empty
+  // row must not plant a new crop (that would start a fresh plant mid-run and disrupt the
+  // in-progress simulation). While running we only let the user switch between rows that
+  // already have a plant; empty planters are inert until the run is paused/reset.
   const handlePlanterClick = (row: number) => {
+    if (isRunning) {
+      if (rowOccupancy(row) > 0) setActiveRow(row);
+      return;
+    }
     setActiveRow(row);
     if (rowOccupancy(row) === 0) {
       const slot = activeCrop.id === 'tomatoes' ? 'tomato' : 'lettuce';
@@ -551,7 +560,7 @@ export default function DashboardPage() {
                               <div key={planterId} id={planterId} className="relative flex flex-col items-center">
                                 <button
                                   onClick={() => handlePlanterClick(row)}
-                                  className="relative aspect-square w-full rounded-full transition-transform duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 flex items-center justify-center"
+                                  className={`relative aspect-square w-full rounded-full transition-transform duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 flex items-center justify-center ${isRunning && slot === 'empty' ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                                   aria-label={`${planterId}, ${slot === 'empty' ? 'empty' : slot}`}
                                   style={{
                                     backgroundColor: '#5b3a2c',
