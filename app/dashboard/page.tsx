@@ -211,25 +211,22 @@ export default function DashboardPage() {
     handleReset,
   } = sim;
 
-  // Garden planter UI state that's local to this page only (the crop-picker dropdown
-  // and its confirmation toast aren't needed on the chart page).
-  const [openDropdown, setOpenDropdown] = useState<number | null>(null);
+  // Garden planter UI state that's local to this page only (the confirmation toast
+  // isn't needed on the chart page).
   const [cropConfirmation, setCropConfirmation] = useState<string | null>(null);
 
+  // Click-to-plant (single-crop session): selects the row, and if it's empty, plants the
+  // current session crop (activeCrop) into all 3 of its slots. There's no per-row crop
+  // choice — the crop comes from the Crop Type selector. Clicking an already-planted row
+  // just selects it; clearing a row is done via Reset.
   const handlePlanterClick = (row: number) => {
     setActiveRow(row);
-    setOpenDropdown(prev => (prev === row ? null : row));
-  };
-
-  const assignCrop = (crop: 'lettuce' | 'tomato', row: number) => {
-    const { changed } = sim.assignCrop(crop, row);
-    setOpenDropdown(null);
-    if (changed) {
-      setCropConfirmation('Crop changed — restarting this row');
-    } else {
-      setCropConfirmation(`${crop.charAt(0).toUpperCase() + crop.slice(1)} added to simulation`);
+    if (rowOccupancy(row) === 0) {
+      const slot = activeCrop.id === 'tomatoes' ? 'tomato' : 'lettuce';
+      sim.assignCrop(slot, row);
+      setCropConfirmation(`${activeCrop.name} planted in ${rows[row].name}`);
+      setTimeout(() => setCropConfirmation(null), 3000);
     }
-    setTimeout(() => setCropConfirmation(null), 3000);
   };
 
   const handleViewChart = (row: number) => {
@@ -392,13 +389,14 @@ export default function DashboardPage() {
                   <select
                     id="system-select"
                     aria-label="System Architecture"
-                    title="System Architecture"
+                    title={isRunning ? 'Pause or reset to change the system' : 'System Architecture'}
                     value={activeSystem.id}
+                    disabled={isRunning}
                     onChange={(e) => {
                       const sys = SYSTEMS.find(s => s.id === e.target.value);
                       if (sys) setActiveSystem(sys);
                     }}
-                    className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-sm text-slate-200 focus:ring-1 focus:ring-blue-500 outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-sm text-slate-200 focus:ring-1 focus:ring-blue-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {SYSTEMS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
@@ -408,16 +406,18 @@ export default function DashboardPage() {
                   <select
                     id="crop-select"
                     aria-label="Crop Type"
-                    title="Crop Type"
+                    title={isRunning ? 'Pause or reset to change the crop' : 'Crop Type'}
                     value={activeCrop.id}
+                    disabled={isRunning}
                     onChange={(e) => {
                       const crop = CROPS.find(c => c.id === e.target.value);
                       if (crop) {
                         setActiveCrop(crop);
-                        handleReset(); // Reset simulation on crop change
+                        // Single-crop session: re-plant any occupied rows to the new crop and reset.
+                        sim.replantToCrop(crop);
                       }
                     }}
-                    className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-sm text-slate-200 focus:ring-1 focus:ring-blue-500 outline-none"
+                    className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-sm text-slate-200 focus:ring-1 focus:ring-blue-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {CROPS.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
@@ -530,12 +530,12 @@ export default function DashboardPage() {
                     <div className="text-xs uppercase text-slate-400">Planter Detail</div>
                     <div className="text-sm font-semibold text-white">3x3 Grow Bed</div>
                   </div>
-                  <div className="text-[11px] font-mono text-slate-400">Click a planter to assign a crop</div>
+                  <div className="text-[11px] font-mono text-slate-400">Click a row to plant {activeCrop.name}</div>
                 </div>
 
                 <div className="rounded-xl border border-slate-200/60 bg-[#f6f7ee] p-4 shadow-inner space-y-3">
                   {[0, 1, 2].map(row => {
-                    const isOpen = openDropdown === row;
+                    const isActiveRow = activeRow === row;
                     const rowSlots = plants.slice(row * 3, row * 3 + 3);
                     return (
                       <div key={row} className="relative">
@@ -557,7 +557,7 @@ export default function DashboardPage() {
                                     backgroundColor: '#5b3a2c',
                                     boxShadow: slot !== 'empty'
                                       ? '0 0 0 6px #d16a55, inset 0 0 0 2px rgba(0,0,0,0.05)'
-                                      : isOpen
+                                      : isActiveRow
                                       ? '0 0 0 5px #60a5fa'
                                       : '0 0 0 3px #d16a55',
                                     opacity: slot !== 'empty' ? 1 : 0.65,
@@ -575,28 +575,6 @@ export default function DashboardPage() {
                             );
                           })}
                         </div>
-                        {isOpen && (
-                          <div
-                            id="cropSelect"
-                            className="absolute right-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden text-xs w-32"
-                          >
-                            <div className="px-3 py-1.5 text-[10px] text-slate-400 border-b border-slate-100 uppercase tracking-wide">Apply to this row</div>
-                            <button
-                              onClick={() => assignCrop('lettuce', row)}
-                              className="flex items-center gap-2 w-full px-3 py-2 hover:bg-green-50 text-slate-700"
-                            >
-                              <img src="/lettuce.svg" alt="lettuce" className="w-4 h-4" />
-                              Lettuce
-                            </button>
-                            <button
-                              onClick={() => assignCrop('tomato', row)}
-                              className="flex items-center gap-2 w-full px-3 py-2 hover:bg-red-50 text-slate-700"
-                            >
-                              <img src="/tomato.svg" alt="tomato" className="w-4 h-4" />
-                              Tomato
-                            </button>
-                          </div>
-                        )}
                         {rowSlots.some(s => s !== 'empty') && (
                           <button
                             onClick={() => handleViewChart(row)}
@@ -649,7 +627,7 @@ export default function DashboardPage() {
                <MetricGauge label="CO2 (ppm)" value={params.co2} unit="" min={300} max={1200} optimal={activeOptimal.co2} />
             </Card>
 
-            <Card title={`AI Yield Prediction — ${rows[activeRow].name}`} className="relative overflow-hidden">
+            <Card title={`Harvest Quality — ${rows[activeRow].name}`} className="relative overflow-hidden">
                {/* Source Badge — reflects whether the number came from the dataset endpoint or the local fallback */}
                <div className="absolute top-3 right-3 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">
                   <Cpu size={10} /> {predictionByRow[activeRow] ? 'Engine' : 'Local'}

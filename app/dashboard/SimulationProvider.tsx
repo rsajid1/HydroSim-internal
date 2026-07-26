@@ -149,6 +149,10 @@ interface SimulationContextValue {
    *  DIFFERENT crop already planted there (in which case the row was reset) —
    *  callers use this to decide what confirmation message to show. */
   assignCrop: (crop: 'lettuce' | 'tomato', row: number) => { changed: boolean };
+  /** Single-crop session: after the setup Crop Type changes, re-plants every
+   *  already-occupied row to the new crop and resets the run (a different plant),
+   *  keeping the invariant that every planted row holds the active crop. */
+  replantToCrop: (crop: Crop) => void;
 }
 
 const SimulationContext = createContext<SimulationContextValue | undefined>(undefined);
@@ -520,6 +524,15 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     return { changed };
   };
 
+  // Session is single-crop: the setup Crop Type is the only crop source. When it changes,
+  // re-map every occupied slot to the new crop (planter uses singular ids) and reset the run.
+  // Rows that were empty stay empty — the user still chooses which rows to plant.
+  const replantToCrop = (crop: Crop): void => {
+    const slot: 'lettuce' | 'tomato' = crop.id === 'tomatoes' ? 'tomato' : 'lettuce';
+    setPlants(prev => prev.map(s => (s === 'empty' ? 'empty' : slot)));
+    handleReset();
+  };
+
   const rowOccupancy = (row: number) =>
     plants.slice(row * 3, row * 3 + 3).filter(s => s !== 'empty').length;
 
@@ -535,7 +548,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     plants,
     rows: ROWS,
     rowCrop, rowOccupancy, getGrowthLabel,
-    resetRow, handleReset, assignCrop,
+    resetRow, handleReset, assignCrop, replantToCrop,
   };
 
   return <SimulationContext.Provider value={value}>{children}</SimulationContext.Provider>;
