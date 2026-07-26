@@ -27,6 +27,12 @@ Brief pointers — see `docs/CHANGELOG.md` (2026-07-25 / 07-26) for the full det
 5. **Visualization column refactor** — isolated, elevated status chip above a centred, size-capped grow
    bed; one "View Chart — {row}" for the active row; active row shown via blue pot rings.
 6. **Environment Controls note → info-icon hover tooltip** — decluttered the controls panel.
+7. **Simulation failure states** — death latch (irreversible **DEAD** + colour-coded health) was already
+   in place; added **deviation-with-grace**: the System Log now scores all five controls against the
+   active stage's optimum (fixing the bug where it only reacted to pH/temp), warns per off-target control,
+   and escalates a sustained severe deviation to *critical* only after a grace window. *Backend-failure
+   UX* and *dying-plant visuals* were dropped from scope (redundant with the health chip + growth chart;
+   plant-health visuals belong to the optional 3D view).
 
 All verified: **48 frontend tests pass, lint 0 errors** (dashboard tests updated to the single-crop flow).
 
@@ -34,16 +40,7 @@ All verified: **48 frontend tests pass, lint 0 errors** (dashboard tests updated
 
 ## ⏳ Pending — Features
 
-1. **Simulation failure states** (partly present — extend it)
-   The death latch already exists (`plantDeadByRow`, health→0 = "DEAD"). Build out the failure UX:
-   - **Deviation-with-grace**: when controls sit far outside the current stage's optimal range, warn and
-     give the user a short window to react before health damage compounds.
-   - **Backend failure**: show an explicit failure state when `/api/sim/predict` is unreachable, instead
-     of silently freezing growth.
-   - **Visualize dying plants**: reflect low health / death in the visualization (wilting/dead plant),
-     driven by the per-row yield/health rate.
-
-2. **Compare Scenarios — save & compare multiple runs** (GitHub issue #10)
+1. **Compare Scenarios — save & compare multiple runs** (GitHub issue #10)
    Let users save completed runs and compare 2–3 side by side (final yield, average stress, time to
    harvest, time out of range, env averages) so instructors/learners see how configurations performed.
 
@@ -103,8 +100,9 @@ All verified: **48 frontend tests pass, lint 0 errors** (dashboard tests updated
 ## 💡 New features or refinement (optional)
 
 - **3D plant-growth visualization.** Replace/augment the 2D planter with an accurate 3D view of plant
-  growth, and show health visually (plant thriving vs. dying / simulation failure). Pairs with the
-  dying-plant visuals in feature 1 (Simulation failure states).
+  growth, and show health visually (plant thriving vs. dying / simulation failure). This subsumes the
+  "visualize dying plants" idea that was dropped from the (now-complete) failure-states work as redundant
+  with the health chip + growth chart.
 
 ---
 

@@ -106,6 +106,20 @@ const PLANT_TO_CROP_ID: Record<'lettuce' | 'tomato', string> = { lettuce: 'lettu
 // common case while bounding memory if a run is left going past harvest.
 const HISTORY_CAP = 500;
 
+// System Log out-of-range detection (all five controls, not just pH/temp). A control is "off"
+// once it deviates past 15% of its slider range from the active stage's optimum — the same yellow
+// band the telemetry gauge uses — and "critical" past 30% (the gauge's red band). Deviation-with-
+// grace: a far-off control shows as a *warning* first and only escalates to *critical* if it stays
+// off past OUT_OF_RANGE_GRACE_HOURS, giving the user a short window to react before it compounds.
+const OUT_OF_RANGE_GRACE_HOURS = 12; // ~2 ticks at 6 sim-h/tick
+const FIELD_RANGES: Record<keyof SimulationParams, { min: number; max: number; label: string }> = {
+  ph: { min: 4.0, max: 8.0, label: 'pH' },
+  ec: { min: 0.5, max: 4.0, label: 'EC' },
+  temp: { min: 10, max: 40, label: 'Temperature' },
+  humidity: { min: 0, max: 100, label: 'Humidity' },
+  co2: { min: 300, max: 1200, label: 'CO₂' },
+};
+
 export const ROWS: RowLabel[] = [
   { id: 0, name: 'Top Row' },
   { id: 1, name: 'Middle Row' },
@@ -213,38 +227,45 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const [activeRow, setActiveRow] = useState<number>(0);
   const [plants, setPlants] = useState<('empty' | 'lettuce' | 'tomato')[]>(Array(9).fill('empty'));
 
-  // -- Physics Engine --
+  // -- Out-of-range detection for the System Log (client-side, all five controls) --
+  // Runs each tick. Scores every control against the active row's stage-aware optimum and emits a
+  // warning per off-target control, escalating to critical if it stays off past the grace window.
   const calculatePhysics = () => {
-    const optimal = activeCrop.optimal;
-    let totalStress = 0;
+    const p = paramsRef.current;
+    // Score against the active row's stage-aware optimum (what telemetry shows), falling back to
+    // the crop-level optima before the first prediction.
+    const stageOptimal = rowSimRef.current[activeRowRef.current]?.optimal ?? activeCrop.optimal;
+    const nowHours = simulationTimeRef.current;
     const newAlerts: Alert[] = [];
+    let totalStress = 0;
 
-    // Check pH
-    const phDiff = Math.abs(params.ph - optimal.ph);
-    if (phDiff > 1.0) {
-      totalStress += 20;
-      newAlerts.push({ id: Date.now() + 'ph', type: 'critical', msg: `pH Critical: ${params.ph.toFixed(1)}` });
-    } else if (phDiff > 0.5) {
-      totalStress += 5;
-      newAlerts.push({ id: Date.now() + 'ph', type: 'warning', msg: `pH unstable` });
-    }
+    (Object.keys(FIELD_RANGES) as (keyof SimulationParams)[]).forEach((field) => {
+      const cfg = FIELD_RANGES[field];
+      const range = cfg.max - cfg.min;
+      const dev = Math.abs(p[field] - stageOptimal[field]);
+      if (dev <= range * 0.15) {
+        outOfRangeSinceRef.current[field] = null; // back in range — clear its grace timer
+        return;
+      }
+      // Out of range: start (or continue) this control's grace timer.
+      if (outOfRangeSinceRef.current[field] == null) outOfRangeSinceRef.current[field] = nowHours;
+      const heldHours = nowHours - (outOfRangeSinceRef.current[field] as number);
+      const escalated = dev > range * 0.30 && heldHours >= OUT_OF_RANGE_GRACE_HOURS;
+      if (escalated) {
+        totalStress += 20;
+        newAlerts.push({ id: field, type: 'critical', msg: `${cfg.label} critical (${p[field]}) — damage is compounding` });
+      } else {
+        totalStress += 8;
+        newAlerts.push({ id: field, type: 'warning', msg: `${cfg.label} off-target (${p[field]}, aim ${stageOptimal[field]}) — adjust soon` });
+      }
+    });
 
-    // Check Temp
-    const tempDiff = Math.abs(params.temp - optimal.temp);
-    if (tempDiff > 5) {
-      totalStress += 15;
-      newAlerts.push({ id: Date.now() + 'temp', type: 'warning', msg: `Temp Deviation` });
-    }
-
-    // Update State
     setMetrics(prev => ({
       ...prev,
       stressLevel: Math.min(100, totalStress),
-      yieldPrediction: Math.max(0, 100 - (totalStress * 1.5))
+      yieldPrediction: Math.max(0, 100 - totalStress * 1.5),
     }));
-
-    // Dedup alerts and keep last 3
-    setAlerts(prev => [...newAlerts, ...prev].slice(0, 3));
+    setAlerts(newAlerts);
   };
 
   // Resolves a row's planted crop (if any) to its CROPS entry.
@@ -260,15 +281,24 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const simulationTimeRef = useRef<number>(0);
   useEffect(() => { simulationTimeRef.current = simulationTime; }, [simulationTime]);
 
-  const rowSimRef = useRef<Record<number, { rate: number; cycleDays: number; healthRate: number; stressFactor: number } | null>>({ 0: null, 1: null, 2: null });
+  const rowSimRef = useRef<Record<number, { rate: number; cycleDays: number; healthRate: number; stressFactor: number; optimal: OptimalConditions | null } | null>>({ 0: null, 1: null, 2: null });
   useEffect(() => {
     const next: typeof rowSimRef.current = {};
     for (const row of [0, 1, 2]) {
       const p = predictionByRow[row];
-      next[row] = p ? { rate: p.growthRate, cycleDays: p.cycleDays, healthRate: p.healthRate, stressFactor: p.stressFactor } : null;
+      next[row] = p ? { rate: p.growthRate, cycleDays: p.cycleDays, healthRate: p.healthRate, stressFactor: p.stressFactor, optimal: p.optimal } : null;
     }
     rowSimRef.current = next;
   }, [predictionByRow]);
+
+  // Fresh mirrors for the tick's alert pass — the interval isn't recreated on every param/row
+  // change, so it reads these instead of stale closure values.
+  const paramsRef = useRef(params);
+  useEffect(() => { paramsRef.current = params; }, [params]);
+  const activeRowRef = useRef(activeRow);
+  useEffect(() => { activeRowRef.current = activeRow; }, [activeRow]);
+  // Per-control grace timer: the sim-hour each control first went out of range (null = in range).
+  const outOfRangeSinceRef = useRef<Record<keyof SimulationParams, number | null>>({ ph: null, ec: null, temp: null, humidity: null, co2: null });
 
   // Current per-row growth/health + death latch, mirrored to refs so the tick can read
   // them without being deps.
@@ -498,6 +528,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     });
     seedParamsFromEngine(activeCrop); // re-seed to the seedling-stage optima (async)
     setAlerts([]);
+    outOfRangeSinceRef.current = { ph: null, ec: null, temp: null, humidity: null, co2: null };
     setMetrics({ yieldPrediction: 100, stressLevel: 0, waterLevel: 100 });
   };
 
