@@ -25,7 +25,7 @@ import {
   Loader,
   LineChart as LineChartIcon,
 } from 'lucide-react';
-import { useSimulation, SYSTEMS, CROPS } from './SimulationProvider';
+import { useSimulation, SYSTEMS } from './SimulationProvider';
 
 /**
  * HydroSim - Interactive Hydroponics & Greenhouse Simulator
@@ -197,7 +197,7 @@ export default function DashboardPage() {
   const sim = useSimulation();
   const {
     activeSystem, setActiveSystem,
-    activeCrop, setActiveCrop,
+    activeCrop,
     isRunning, setIsRunning,
     simulationTime,
     growthStageByRow, healthByRow, plantDeadByRow, alerts,
@@ -207,7 +207,9 @@ export default function DashboardPage() {
     plants,
     rows,
     rowOccupancy,
+    rowCrop,
     getGrowthLabel,
+    getGrowthStageImage,
     handleReset,
   } = sim;
 
@@ -398,25 +400,6 @@ export default function DashboardPage() {
                     {SYSTEMS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label htmlFor="crop-select" className="text-xs text-slate-500 mb-1 block">Crop Type</label>
-                  <select
-                    id="crop-select"
-                    aria-label="Crop Type"
-                    title="Crop Type"
-                    value={activeCrop.id}
-                    onChange={(e) => {
-                      const crop = CROPS.find(c => c.id === e.target.value);
-                      if (crop) {
-                        setActiveCrop(crop);
-                        handleReset(); // Reset simulation on crop change
-                      }
-                    }}
-                    className="w-full bg-slate-950 border border-slate-700 rounded p-2 text-sm text-slate-200 focus:ring-1 focus:ring-blue-500 outline-none"
-                  >
-                    {CROPS.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
               </div>
             </Card>
 
@@ -467,9 +450,17 @@ export default function DashboardPage() {
               <div className="flex-1 p-4 flex flex-col gap-4">
                 <div className="flex items-center justify-between text-xs text-slate-400 uppercase">
                   <div className="flex items-center gap-2">
-                    <Sprout size={14} className="text-green-400" />
+                    {getGrowthStageImage(growthStageByRow[activeRow], rowCrop(activeRow)) ? (
+                      <img
+                        src={getGrowthStageImage(growthStageByRow[activeRow], rowCrop(activeRow))!}
+                        alt={getGrowthLabel(growthStageByRow[activeRow], rowCrop(activeRow))}
+                        className="w-8 h-8 object-contain"
+                      />
+                    ) : (
+                      <Sprout size={14} className="text-green-400" />
+                    )}
                     <span>Growth Stage — {rows[activeRow].name}</span>
-                    <span className="text-white font-semibold">{getGrowthLabel(growthStageByRow[activeRow])} ({Math.floor(growthStageByRow[activeRow])}%)</span>
+                    <span className="text-white font-semibold">{getGrowthLabel(growthStageByRow[activeRow], rowCrop(activeRow))} ({Math.floor(growthStageByRow[activeRow])}%)</span>
                     <span className={`font-semibold ${plantDeadByRow[activeRow] ? 'text-red-500' : healthByRow[activeRow] >= 0.7 ? 'text-green-400' : healthByRow[activeRow] >= 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
                       · {plantDeadByRow[activeRow] ? 'DEAD' : `Health ${Math.round(healthByRow[activeRow] * 100)}%`}
                     </span>
@@ -479,31 +470,27 @@ export default function DashboardPage() {
 
                 <div className="relative flex-1 flex items-center justify-center">
                   <div className="absolute inset-0 bg-grid-pattern opacity-40"></div>
-                  <div className="relative w-full max-w-sm space-y-4">
+                  <div className="relative w-full max-w-sm divide-y divide-slate-800 rounded-lg border border-slate-800 bg-slate-950/40 overflow-hidden">
                     {rows.map((row) => {
                       const isActive = activeRow === row.id;
                       return (
                         <button
                           key={row.id}
                           onClick={() => handlePlanterClick(row.id)}
-                          className={`group w-full rounded-xl border transition-all flex flex-col gap-1 px-3 py-3 text-left ${isActive ? 'border-emerald-400 bg-slate-800 shadow-lg shadow-emerald-900/40' : 'border-slate-700 bg-slate-800/60 hover:border-emerald-300/70 hover:bg-slate-800/80'}`}
+                          className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors ${isActive ? 'bg-slate-800/70' : 'hover:bg-slate-800/40'}`}
                           aria-pressed={isActive}
                           aria-label={`${row.name}, ${rowOccupancy(row.id)} of 3 planted`}
                         >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="text-sm font-semibold text-white">{row.name}</div>
-                            </div>
-                            <div className={`text-[11px] px-2 py-1 rounded-full font-mono ${isActive ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/50' : 'bg-slate-900 text-slate-300 border border-slate-700'}`}>
-                              {rowOccupancy(row.id)}/3
-                            </div>
-                          </div>
-                          <div className="relative mt-2 h-5 rounded-lg overflow-hidden bg-slate-950 border border-slate-700">
-                            <div className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-slate-700/40 to-slate-700/10"></div>
-                            <div className="absolute inset-0 flex items-center px-2">
-                              <div className={`h-2 rounded-full transition-all ${isActive ? 'bg-emerald-400/80' : 'bg-slate-600/70'}`} style={{ width: `${(rowOccupancy(row.id) / 3) * 100}%` }}></div>
-                            </div>
-                          </div>
+                          <span className={`text-sm ${isActive ? 'text-white font-medium' : 'text-slate-300'}`}>{row.name}</span>
+                          <span className="flex items-center gap-2">
+                            <span className="w-14 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                              <span
+                                className={`block h-full rounded-full ${isActive ? 'bg-emerald-400/80' : 'bg-slate-600/70'}`}
+                                style={{ width: `${(rowOccupancy(row.id) / 3) * 100}%` }}
+                              ></span>
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-500 w-6 text-right">{rowOccupancy(row.id)}/3</span>
+                          </span>
                         </button>
                       );
                     })}
@@ -635,7 +622,7 @@ export default function DashboardPage() {
                <MetricGauge label="Humidity" value={params.humidity} unit="%" min={0} max={100} optimal={activeCrop.optimal.humidity} />
             </Card>
 
-            <Card title={`AI Yield Prediction — ${rows[activeRow].name}`} className="relative overflow-hidden">
+            <Card title={`Yield Prediction — ${rows[activeRow].name}`} className="relative overflow-hidden">
                {/* Source Badge — reflects whether the number came from the dataset endpoint or the local fallback */}
                <div className="absolute top-3 right-3 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded border border-purple-500/30 flex items-center gap-1">
                   <Cpu size={10} /> {predictionByRow[activeRow] ? 'Engine' : 'Local'}

@@ -1,5 +1,32 @@
 # Changelog
 > Please note, PR links are not available for changes below as they are on private repository or not committed. Changes implemented after May 12, 2026 will include PR links. 
+## 2026-07-27
+
+### Added
+- **Lettuce growth-stage reference images** (retroactively documented — shipped between the 07-22 and 07-27 entries) — each lettuce `stageThresholds` entry now carries an `image` path under `public/lettuce_growth_images/`; a new `getGrowthStageImage()` helper resolves the current stage's image the same way `getGrowthLabel()` resolves its label. Shown as a small 32px icon on the dashboard, and as a large (up to 220px) side panel next to the growth chart on `/dashboard/simulation` (`app/dashboard/SimulationProvider.tsx`, `app/dashboard/page.tsx`, `app/dashboard/simulation/page.tsx`)
+
+### Changed
+- **Removed the "Crop Type" dropdown from System Setup** — crop selection was already controlled by planting into the garden grid, and the dropdown was a second, disconnected source of truth. `activeCrop` (used for the optimal-value markers on the Environment Controls sliders and Real-time Telemetry gauges) now auto-syncs to whichever crop is actually planted in the active row, via a new effect in `SimulationProvider.tsx`, falling back to the default crop when the row is empty. This does not reset `params` on row switch — only the Reset button does that (`app/dashboard/page.tsx`, `app/dashboard/SimulationProvider.tsx`)
+- **Fixed EC gauge showing the wrong "ideal" value** — the EC (and pH/temp/humidity) optimal markers were keyed to the dropdown's `activeCrop`, which could silently drift out of sync with what was actually planted in the row being viewed (most visibly, any interaction with the dropdown triggered a full environment reset via `handleReset()`). Removing the dropdown and auto-syncing `activeCrop` to the active row's planted crop (see above) fixes the marker to always match the crop actually being viewed
+- **Renamed "AI Yield Prediction" to "Yield Prediction"** — the card's numbers come from a deterministic rules engine (`backend/app/sim/engine.py`), not a trained ML model, so the "AI" label was inaccurate (`app/dashboard/page.tsx`)
+- **Compacted the row-selector list** — the Top/Middle/Bottom Row selector was three large bordered/shadowed buttons with an oversized progress bar; replaced with a compact, information-first list (thin divider rows, small progress bar, subtle active-state highlighting) so it reads as status information rather than three big call-to-action buttons (`app/dashboard/page.tsx`)
+
+### Known limitations / follow-ups
+- EC (and pH/temp/humidity) is still one **shared/global** value across all three rows, not per-row — if two different crops are planted simultaneously, the gauges still show one shared reading, colored against whichever row is currently active. Fully per-row environment state would be a larger follow-up if that becomes a problem in practice.
+
+---
+
+## 2026-07-22
+
+### Changed
+- **Crop-aware growth-stage labels (lettuce)** — `getGrowthLabel()` now accepts the row's resolved `Crop` and looks up stage names from an optional `stageThresholds` list on the crop, instead of one fixed set of labels for every crop. Lettuce now shows its actual head-lettuce stages (Seed, Cotyledon, Seedling, Rosette, Cupping, Heading) mapped across the 0-100 growth scale; crops without `stageThresholds` (currently tomatoes) keep the previous generic Seedling/Vegetative/Flowering-Fruiting/Harvest Ready labels unchanged. Frontend-only — the backend's per-crop stage day-ranges in `CROP_PROFILES` remain unused/unwired (`app/dashboard/SimulationProvider.tsx`, `app/dashboard/page.tsx`, `app/dashboard/simulation/page.tsx`)
+
+### Known limitations / follow-ups
+- Tomato (and any future crop) still uses the generic, non-crop-specific stage thresholds — needs its own researched `stageThresholds` if accurate labeling is wanted there too.
+- These frontend stage labels are still independent of the backend's `CROP_PROFILES[...]["stages"]` day-range definitions (tracked separately, see 2026-07-17 entry's engine notes) — reconciling them is deferred until the backend's stage-aware growth math (issue #5) actually ships.
+
+---
+
 ## 2026-07-17
 
 The simulation engine grew from a stress/yield scorer into a live, stateful, system-aware model.
