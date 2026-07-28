@@ -139,33 +139,30 @@ async def predict(req: PredictRequest) -> PredictResponse:
         "humidity_percent": req.humidity_percent,
         "co2_ppm": req.co2_ppm,
     }
-    # Resolve the current growth stage from progress (issue #5), falling back to any
-    # caller-supplied growth_stage, then to None (crop-level targets). Every score below is
-    # computed against the stage's optima, so a seedling isn't judged by fruiting-stage EC.
+    
+    # Score against stage-aware optima.
     stage = stage_for_progress(req.crop_type, req.growth_percent) or req.growth_stage
     targets = optimal_targets(req.crop_type, stage)
 
-    # system_type scales tolerances (DWC buffers deviations vs NFT baseline); growth/health/yield
-    # all derive from this stress, so they inherit the system effect.
+    # system_type scales tolerances (DWC buffers vs NFT); growth/health/yield inherit this stress.
     stress = compute_stress(env, req.crop_type, stage=stage, system=req.system_type)
     harvest_quality = predict_yield(stress)              # clamp(100 - 1.15*stress, 0, 100)
     risk_level, status = classify(stress)
-    # Ask the engine rather than re-deriving 1 - stress/100 here: one definition of the formula.
+    
+    # Engine owns the formula (don't re-derive 1 - stress/100 here).
     growth_rate = compute_growth_rate(env, req.crop_type, stage=stage, system=req.system_type)
-    # Health uses health_stress (Liebig): a single field past its tolerance harms survival more
-    # than the diluted aggregate implies. The frontend integrates this rate over ticks.
+    
+    # Liebig health_stress: one field past tolerance dominates survival. Frontend integrates the rate.
     hrate = health_rate(health_stress(env, req.crop_type, stage=stage, system=req.system_type))
 
-    # A single fully-saturated field is a destroyed parameter — surface it even when the
-    # aggregate stress hasn't crossed classify()'s threshold (e.g. pH alone maxes at ~27,
-    # below the 30 needed for "warning"). Floor status/risk instead of reporting "stable".
+    # If aggregate stress is below classify()'s threshold (e.g. pH alone caps ~27 < 30). Floor status/risk rather than report "stable".
     drivers = _ranked_drivers(req, stage)
     if any(d["saturation"] >= 1.0 for d in drivers):
         status = _at_least(status, "warning", _STATUS_ORDER)
         risk_level = _at_least(risk_level, "medium", _RISK_ORDER)
 
-    # Time-to-harvest still uses the CSV-derived cycle length (kept as a reference input, not the
-    # live yield source). Dataset missing -> 503, same as before.
+    # Time-to-harvest uses the CSV cycle length (reference input, not the live yield source).
+    # Dataset missing -> 503.
     try:
         cycle = cycle_length_days(req.crop_type)
     except FileNotFoundError as exc:

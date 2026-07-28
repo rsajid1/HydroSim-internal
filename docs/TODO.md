@@ -44,36 +44,120 @@ All verified: **48 frontend tests pass, lint 0 errors** (dashboard tests updated
    Let users save completed runs and compare 2–3 side by side (final yield, average stress, time to
    harvest, time out of range, env averages) so instructors/learners see how configurations performed.
 
-   **Decided approach — Phase 1 on `localStorage`, behind a swappable store interface** (Phase 2 can drop
-   in a backend with no UI rewrite). A "scenario" = **one saved run** at run level (env & stress are
-   global; the active row supplies the plant outcome). Smaller decisions locked in: MVP "time out of
-   range" = sim-hours where overall `stress_factor` exceeded a threshold (~10%); Save is the existing
-   header **Save Session** button (auto-capture on harvest optional).
+   **Source of truth = the engine.** Every metric comes from the deterministic grey-box engine's
+   `/api/sim/predict` output (`predictionByRow`) + provider state — there is **no AI/ML** here; the
+   issue's "AI predictions" wording predates the ML drop (the dataset/pipeline is a thesis attachment).
 
-   **Metrics & sources** (all available today unless noted):
+   **Decisions locked in:**
+   - **Phase 1 on `localStorage`, behind a swappable `ScenarioStore` interface** — Phase 2 drops in a
+     backend with no UI rewrite.
+   - A "scenario" = **one saved run** at run level (env & stress are global; the **active row** supplies
+     the plant outcome — under a global environment all occupied rows track near-identically, so one
+     representative is enough).
+   - **Save trigger** = the existing header **Save Session** button (manual), disabled until
+     `simulationTime > 0`. Auto-capture on harvest is deferred/optional.
+   - **"Time out of range"** = sim-hours where the active row's engine `stress_factor` exceeded a
+     threshold (~10). Per-param version later.
+   - **Charts out of MVP scope** — a scenario stores summary numbers only, not the per-tick trajectory,
+     so overlaying growth/stress curves would need a persisted downsampled series (Phase 2). The live-sim
+     `RowGrowthChart` stays a run-time view; comparison is table-first.
+
+   **Data model** (`lib/scenarioMetrics.ts`):
+   ```ts
+   interface ScenarioMetrics {
+     finalYieldRaw: number;        // predictionByRow[activeRow].harvestQuality
+     finalYieldDisplayed: number;  // raw × √health  (matches the dashboard's discount)
+     finalHealth: number;          // 0–100
+     avgStress: number;            // running mean of stressFactor over ticks
+     timeToHarvestDays: number;    // predictionByRow[activeRow].timeToHarvest at save
+     timeOutOfRangeHours: number;  // sim-hours where stress > ~10
+     durationHours: number;        // simulationTime
+     envAvg: { ph; ec; temp; humidity; co2 };  // running mean of params over ticks
+   }
+   interface Scenario {
+     id: string; createdAt: number; label: string;   // "Scenario N", renameable
+     cropId; cropName; systemId; systemName;
+     finalSettings: SimulationParams;  // slider values at save (the "what I set")
+     metrics: ScenarioMetrics;
+   }
+   ```
+   Pure, unit-tested aggregation (the piece that satisfies the unit-test AC):
+   `createAccumulator()` → `accumulate(acc, { params, stressFactor })` per tick → `finalize(acc, finalState)
+   → ScenarioMetrics`.
+
+   **Metrics & sources** (all engine/provider values available today unless noted):
    | Metric | Source |
    |---|---|
-   | Final yield | `prediction.harvestQuality` — store raw **and** displayed `×√health`, plus final health |
-   | Average stress | running mean of `prediction.stressFactor` over ticks |
-   | Time to harvest | `prediction.timeToHarvest` (days) at completion |
+   | Final yield | `predictionByRow[activeRow].harvestQuality` — store raw **and** displayed `×√health`, + final health |
+   | Average stress | running mean of `predictionByRow[activeRow].stressFactor` over ticks |
+   | Time to harvest | `predictionByRow[activeRow].timeToHarvest` (days) at save |
    | Env averages (pH/EC/temp/humidity/CO₂) | running mean of `params` over ticks |
    | Time out of range | **new** — sim-hours where `stress_factor` > threshold (per-param version later) |
-   | Final health / duration | `healthByRow`, `simulationTime` |
+   | Final health / duration | `healthByRow[activeRow]`, `simulationTime` |
+
+   **Storage** (`lib/scenarioStore.ts`): `interface ScenarioStore { list(); save(s); remove(id);
+   rename(id, label); }`; a `localStorageScenarioStore` under key `hydrosim.scenarios` (JSON array,
+   SSR-safe guards). Phase 2 swaps in a `/api/scenarios` fetch impl — same interface, no UI change.
+
+   **Provider accumulation** (`SimulationProvider.tsx`): a `runAccumRef` of
+   `{ ticks, sumPh, sumEc, sumTemp, sumHumidity, sumCo2, sumStress, outOfRangeTicks }`, incremented once
+   per tick in the existing loop (where `calculatePhysics` runs), reset in `handleReset`. Context gains
+   `scenarios` (loaded from the store on mount, hydration-safe), `saveScenario()`, `deleteScenario(id)`,
+   `renameScenario(id, label)`.
+
+   **UI lives in the existing (unused) Dashboard tab** — no new sidebar item. Today the main sim view
+   renders for `activeNav !== 'database'`, so the **Dashboard** nav slot (`activeNav === 'dashboard'`)
+   just duplicates **Simulation**. Repurpose it: render the Compare view at `'dashboard'` and tighten the
+   sim-view guard to `activeNav !== 'database' && activeNav !== 'dashboard'` (optionally relabel the nav
+   item text "Dashboard" → "Compare Scenarios"). New `ScenariosPanel.tsx` (its own component,
+   `useSimulation()`).
+
+   Card grid + a **"Start new session"** card (→ switches to the Simulation tab); **View** opens a
+   single-scenario detail; select 2–3 → **Compare**:
+   ```
+   Compare Scenarios (Dashboard tab)              [ Compare selected · 2 ]
+   ┌───────────────┐ ┌───────────────┐ ┌───────────────┐
+   │  +            │ │ ☑ Scenario 1  │ │ ☑ Scenario 2  │
+   │  Start new    │ │ Lettuce · NFT │ │ Lettuce · DWC │
+   │  session      │ │ Jul 28 14:02  │ │ Jul 28 14:20  │
+   │ (→ Simulation)│ │ Yield 82 · S12│ │ Yield 74 · S21│
+   └───────────────┘ │ [View] [🗑]   │ │ [View] [🗑]   │
+                     └───────────────┘ └───────────────┘
+
+   Detail (View):                     Compare (2–3 selected):
+   ← Back  Scenario 2 · Lettuce·DWC                Scenario 1   Scenario 2
+   OUTCOME              ENV  avg  set   Crop        Lettuce      Lettuce
+   Yield(disp) 74%      pH   5.6  5.5   System      NFT          DWC *
+   Health      86%      EC   1.4  1.3   ─ Outcome ───────────────────────
+   Avg stress  21       Temp 22   21    Final yield 82% ▲        74%
+   Out of range 18 h    Hum  63   60    Avg stress  12  ▲        21
+   To harvest  31 d     CO₂  780  800   Out of range 6 h ▲       18 h
+   Duration    96 h                     ─ Environment (avg) ─────────────
+                                        pH          6.0          5.6 *
+                                        EC          1.2          1.4 *
+                                        * differs from baseline  ▲ best
+   ```
+
+   **How comparison reads** — a metrics **table, one column per scenario**. First selected = baseline;
+   any *config* cell that differs from it (crop, system, an env-average) is flagged `*` (the "what
+   changed"), and each *outcome* row marks the best value ▲ (the "what it did"). Reads directly as
+   "Scenario 2 ran pH lower and picked DWC → higher stress, lower yield."
 
    **Build order:**
-   1. `lib/scenarioMetrics.ts` — pure aggregation (sample type + `aggregate()` → averages/totals/out-of-
-      range) **+ `scenarioMetrics.test.ts`** (Vitest — a runner already exists; satisfies the unit-test
-      acceptance criterion).
-   2. `lib/scenarioStore.ts` — a small `ScenarioStore` interface + a `localStorage` implementation (Phase
-      2 swaps in a fetch-based one).
-   3. `SimulationProvider` — per-tick accumulator (sums/counts, reset on `handleReset`); `saveScenario()`,
-      `scenarios`, `deleteScenario()` on the context.
-   4. Wire the header **Save Session** button → `saveScenario()` (confirmation toast).
-   5. **Compare Scenarios view** — new nav item + panel: list saved scenarios (crop, system, date, key
-      settings), select 2–3, comparison **table** with the *changed* config cells highlighted so students
-      see what differed. Table first; charts later.
+   1. `lib/scenarioMetrics.ts` — pure aggregation (sample type + `createAccumulator`/`accumulate`/
+      `finalize` → averages/totals/out-of-range) **+ `scenarioMetrics.test.ts`** (Vitest — a runner
+      already exists; satisfies the unit-test acceptance criterion). *Lock the math first, no UI.*
+   2. `lib/scenarioStore.ts` — the `ScenarioStore` interface + `localStorage` implementation (Phase 2
+      swaps in a fetch-based one).
+   3. `SimulationProvider` — per-tick `runAccumRef` accumulator (reset on `handleReset`); `saveScenario()`,
+      `scenarios`, `deleteScenario()`, `renameScenario()` on the context.
+   4. Wire the header **Save Session** button → `saveScenario()` (confirmation toast; disabled until
+      `simulationTime > 0`).
+   5. **Compare Scenarios view** in the repurposed **Dashboard** tab (`ScenariosPanel.tsx`): card grid +
+      "Start new session" card, single-scenario detail, select 2–3, comparison **table** with the
+      *changed* config cells and *best* outcomes highlighted. Table first; charts later.
    6. Verify — Vitest + `npm run lint`; manual: two distinct runs show distinct metrics, and changing only
-      pH target highlights that difference.
+      pH highlights that difference; a clean vs bad run shows the expected yield/stress gap.
 
    **Out of scope here** (issue's older notes): scenario *templates* and the full post-simulation *report*
    (issues 9 / 13) — this feature just makes its metrics report-ready.

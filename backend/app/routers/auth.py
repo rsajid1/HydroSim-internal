@@ -91,9 +91,6 @@ async def login(user: LoginModel):
             }
         )
         
-        #Debug full response
-        print("Cognito response:", response)
-        
         return {
             "access_token": response['AuthenticationResult']['AccessToken'],
             "id_token": response['AuthenticationResult']['IdToken'],

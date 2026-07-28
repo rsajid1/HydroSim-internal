@@ -36,6 +36,43 @@ dates/lifecycle stay real. Daily is only ever an optional *training view*. (Plan
 
 Update the ☐/☑ here **and** in each step's README as you finish.
 
+## Per-step summary
+
+Brief of each step's README — open the step folder's `README.md` for full detail.
+
+**1 · Consolidate** — join the 7 tomato files per team on the 5-min `GreenhouseClimate` spine; sparse
+tables (lab ~14-day, crop/production weekly, resources daily) carried forward via
+`merge_asof(backward)`; stack all 6 teams with a `team` column. Weather is shared across teams (join
+on timestamp only); `TomQuality` (relative-day axis) is deferred to step 2. No aggregation.
+
+**2 · Clean & fill** — remove the `Production` Feb-2019 date typo (pre-harvest cells → 0), range-clip
+→ interpolate the env streams, structural `Cum_trusses` NaN→0, causal ffill of lab/recipe → **0
+missing**. `IUACAAS/Resources` is ~45% missing — keep the team for input variety, but don't trust its
+Resources columns.
+
+**3 · Features** — derive `days_since_transplant`, `growth_percent`, `growth_stage` (from each team's
+own truss/harvest events), VPD, DLI, GDD, 24-h rolling Tair stats, pH/EC excursions, NPK. All
+rolling/cumulative values are computed causally **within each team**. Exact formulas: "Engineered
+values & formulas" below.
+
+**4 · Labels** — build the multi-output targets (`y_yield_score`, `y_stress_score`, + 3D-growth
+passthroughs) into the full **68-col audit** table, then `finalize.py` projects the servable feature
+set + targets into the slim **14-col training** table. Calibration: corr(stress, yield) = −0.68
+per-row. Stress optima/weights are tunable constants at the top of `labels.py`.
+
+**5 · Train** *(not started)* — a multi-output gradient-boosted model (XGBoost/LightGBM) on the
+**slim** table only, validated by temporal and/or leave-one-team-out CV (never random split), with
+SHAP for the top-driver explanation. **Feature contract (train ⇔ serve):** model inputs are bounded
+by what the engine can supply live — `ph, ec (feed EC), air_temperature_c, humidity_percent, co2_ppm,
+vpd, days_since_transplant`. `days_since_transplant` is the *only* lifecycle input: `growth_stage`
+(engine uses calendar ranges, labels use observed plant events) and `growth_percent` (team-relative,
+leaky) are excluded. Stress stays engine-owned in v1.
+
+**6 · Serve** *(not started)* — export a HydroSim-schema replay CSV into `../data/` and swap the
+lookup in `backend/app/routers/sim.py::predict()` for `model.predict(...)` with the request/response
+contract **unchanged**; keep the synthetic-dataset path as a fallback. Serve follow-up: add
+`days_since_transplant` to `PredictRequest`.
+
 ## Artifacts
 
 Intermediates live in `artifacts/` (git-ignored — bulky). Naming: `NN_<name>.parquet`.
