@@ -1,5 +1,14 @@
 # Changelog
 > Please note, PR links are not available for changes below as they are on private repository or not committed. Changes implemented after May 12, 2026 will include PR links. 
+## 2026-07-28
+
+Removed EC from the live simulation on `compare-analytics` — groundwork before the Compare Scenarios work, so saved runs record only controllable, deterministic metrics. 118 backend tests + 48 frontend tests pass; lint clean.
+
+- **EC no longer affects prediction** — EC has no slider (it was frozen to the crop ideal), yet the engine was still scoring the frozen value against a **stage-aware EC target that drifts as the plant grows** (lettuce 0.8→1.4, tomato 2.0→3.5). That silently dragged harvest quality / health down as the plant matured, for a factor the user could not control. The live predict path now **omits EC**: `sim.py` drops `ec` from the scored `env` and from `_DRIVERS`, so `compute_stress` / `health_stress` renormalise over the four UI-controlled fields (pH, temp, humidity, CO₂). Harvest quality is now fully determined by the controllable inputs (`backend/app/routers/sim.py`).
+- **Engine constants untouched** — `STRESS_WEIGHTS` / `TOLERANCES` / `LIMITS` still include EC, so the dataset generator and the calibration suite (which pass all eight fields directly) are byte-for-byte unaffected; only the live endpoint stops feeding EC. `PredictRequest.ec` is kept but ignored (back-compat).
+- **EC removed from the frontend** — dropped the EC telemetry gauge and all EC state from `SimulationProvider` (`SimulationParams`/`OptimalConditions`, seeding, the prediction request, and the System Log's out-of-range detection, now four controls) (`app/dashboard/page.tsx`, `app/dashboard/SimulationProvider.tsx`).
+- **Tests** — the "explanation names EC" regression test became "EC is ignored by prediction" (a wrecked EC now reads zero stress); the saturation-floor test switched from pH (which now scores 36 over four fields, above the warning threshold) to CO₂ (16, below it) to keep exercising the floor path.
+
 ## 2026-07-26
 
 Visual polish pass on the dashboard (`feature_cleanups`) — control/slider cleanups and a reworked middle visualization column. No engine changes; 48 frontend tests pass and lint is clean.

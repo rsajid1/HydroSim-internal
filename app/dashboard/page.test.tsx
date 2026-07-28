@@ -87,8 +87,8 @@ describe("DashboardPage - initial render", () => {
   });
 
   it("environment sliders are present, EC is not user-adjustable", () => {
-    // pH, temperature, humidity — these are the parameters users tune.
-    // EC is frozen at the crop's optimal value and has no slider.
+    // pH, temperature, humidity are the tunable parameters; EC has been removed from the sim
+    // (no slider, no telemetry gauge, not scored).
     renderDashboard();
     expect(screen.getByRole("slider", { name: /acidity/i })).toBeInTheDocument();
     expect(screen.queryByRole("slider", { name: /nutrient/i })).not.toBeInTheDocument();

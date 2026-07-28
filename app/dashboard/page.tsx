@@ -251,8 +251,8 @@ export default function DashboardPage() {
   };
 
   // Slider/gauge "Target" markers follow the engine's stage-aware optima when a prediction is
-  // live (they shift as the plant grows — e.g. tomato EC ramps up in fruiting); before the first
-  // prediction, fall back to the crop-level optima.
+  // live (they shift as the plant grows — e.g. tomato air temp eases toward harvest); before the
+  // first prediction, fall back to the crop-level optima.
   const activeOptimal = predictionByRow[activeRow]?.optimal ?? activeCrop.optimal;
 
   return (
@@ -627,7 +627,6 @@ export default function DashboardPage() {
           <div className="lg:col-span-3 space-y-4">
             <Card title="Real-time Telemetry">
                <MetricGauge label="pH Level" value={params.ph} unit="" min={4.0} max={8.0} optimal={activeOptimal.ph} />
-               <MetricGauge label="EC (mS/cm)" value={params.ec} unit="" min={0.5} max={4.0} optimal={activeOptimal.ec} />
                <MetricGauge label="Air Temp" value={params.temp} unit="°C" min={10} max={40} optimal={activeOptimal.temp} />
                <MetricGauge label="Humidity" value={params.humidity} unit="%" min={0} max={100} optimal={activeOptimal.humidity} />
                <MetricGauge label="CO2 (ppm)" value={params.co2} unit="" min={300} max={1200} optimal={activeOptimal.co2} />

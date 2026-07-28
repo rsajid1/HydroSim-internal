@@ -248,8 +248,8 @@ def compute_growth_rate(
 # health to [0, 1], so the engine itself stays stateless. Rates are per simulated hour.
 # Asymmetric by design: damage accrues faster than recovery, so sustained stress leaves
 # a lasting deficit — this asymmetry is what makes the plant "remember".
-# Neutral is below the ~27 a single saturated UI field produces (5 fields → present-weight 66),
-# so one wrecked parameter (e.g. pH 8) declines health instead of sitting in the healing band.
+# Neutral sits below the stress a single saturated UI field produces (four fields → present-weight
+# 50; CO₂ alone ~16, pH alone ~36), so one wrecked parameter declines health instead of healing.
 HEALTH_STRESS_NEUTRAL = 15.0           # below this stress the plant heals, above it declines
 HEALTH_DECAY_PER_HOUR = 1.0 / 72.0     # at max stress, full health lost in ~72 sim-hours (3 days)
 HEALTH_RECOVERY_PER_HOUR = 1.0 / 360.0  # recovery ~5x slower than worst-case decay

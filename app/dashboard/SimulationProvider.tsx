@@ -7,7 +7,6 @@ import type { RowHistoryPoint } from './RowGrowthChart';
 
 export interface OptimalConditions {
   ph: number;
-  ec: number;
   temp: number;
   humidity: number;
   co2: number;
@@ -27,7 +26,6 @@ export interface System {
 
 export interface SimulationParams {
   ph: number;
-  ec: number;
   temp: number;
   humidity: number;
   co2: number;
@@ -78,8 +76,8 @@ export const SYSTEMS: System[] = [
 // and Reset default land off the engine's optimum, so a user sitting exactly on target still
 // reads phantom stress. (tomato air_temperature_c is 25.0 in the engine, not 26.)
 export const CROPS: Crop[] = [
-  { id: 'lettuce', name: 'Lettuce', optimal: { ph: 6.0, ec: 1.2, temp: 20, humidity: 60, co2: 800 } },
-  { id: 'tomatoes', name: 'Tomatoes', optimal: { ph: 6.0, ec: 2.5, temp: 25, humidity: 70, co2: 900 } },
+  { id: 'lettuce', name: 'Lettuce', optimal: { ph: 6.0, temp: 20, humidity: 60, co2: 800 } },
+  { id: 'tomatoes', name: 'Tomatoes', optimal: { ph: 6.0, temp: 25, humidity: 70, co2: 900 } },
 ];
 
 // Backend base URL (reused from the DB panel's fetch pattern).
@@ -106,7 +104,7 @@ const PLANT_TO_CROP_ID: Record<'lettuce' | 'tomato', string> = { lettuce: 'lettu
 // common case while bounding memory if a run is left going past harvest.
 const HISTORY_CAP = 500;
 
-// System Log out-of-range detection (all five controls, not just pH/temp). A control is "off"
+// System Log out-of-range detection (the four user controls: pH, temp, humidity, CO₂). A control is "off"
 // once it deviates past 15% of its slider range from the active stage's optimum — the same yellow
 // band the telemetry gauge uses — and "critical" past 30% (the gauge's red band). Deviation-with-
 // grace: a far-off control shows as a *warning* first and only escalates to *critical* if it stays
@@ -114,7 +112,6 @@ const HISTORY_CAP = 500;
 const OUT_OF_RANGE_GRACE_HOURS = 12; // ~2 ticks at 6 sim-h/tick
 const FIELD_RANGES: Record<keyof SimulationParams, { min: number; max: number; label: string }> = {
   ph: { min: 4.0, max: 8.0, label: 'pH' },
-  ec: { min: 0.5, max: 4.0, label: 'EC' },
   temp: { min: 10, max: 40, label: 'Temperature' },
   humidity: { min: 0, max: 100, label: 'Humidity' },
   co2: { min: 300, max: 1200, label: 'CO₂' },
@@ -201,7 +198,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   // off-target 22 °C / 400 ppm defaults.
   const [params, setParams] = useState<SimulationParams>({
     ph: CROPS[0].optimal.ph,
-    ec: CROPS[0].optimal.ec,
     temp: CROPS[0].optimal.temp,
     humidity: CROPS[0].optimal.humidity,
     co2: CROPS[0].optimal.co2,
@@ -298,7 +294,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const activeRowRef = useRef(activeRow);
   useEffect(() => { activeRowRef.current = activeRow; }, [activeRow]);
   // Per-control grace timer: the sim-hour each control first went out of range (null = in range).
-  const outOfRangeSinceRef = useRef<Record<keyof SimulationParams, number | null>>({ ph: null, ec: null, temp: null, humidity: null, co2: null });
+  const outOfRangeSinceRef = useRef<Record<keyof SimulationParams, number | null>>({ ph: null, temp: null, humidity: null, co2: null });
 
   // Current per-row growth/health + death latch, mirrored to refs so the tick can read
   // them without being deps.
@@ -387,7 +383,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
           system_type: activeSystem.id, // nft (baseline) | dwc (buffered)
           growth_percent: growthStageByRow[row],
           ph: params.ph,
-          ec: params.ec,
           air_temperature_c: params.temp,
           humidity_percent: params.humidity,
           co2_ppm: params.co2,
@@ -414,7 +409,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
           optimal: data.optimal
             ? {
                 ph: data.optimal.ph,
-                ec: data.optimal.ec,
                 temp: data.optimal.air_temperature_c,
                 humidity: data.optimal.humidity_percent,
                 co2: data.optimal.co2_ppm,
@@ -448,7 +442,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     }, PREDICT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plants, activeSystem.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStageByRow]);
+  }, [plants, activeSystem.id, params.ph, params.temp, params.humidity, params.co2, growthStageByRow]);
 
   // -- Seed the environment to the crop's starting (seedling) optima --
   // On mount and whenever the crop changes, ask the engine for the seedling-stage optimal
@@ -467,7 +461,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
           system_type: activeSystem.id,
           growth_percent: 0, // seedling — the starting stage
           ph: crop.optimal.ph,
-          ec: crop.optimal.ec,
           air_temperature_c: crop.optimal.temp,
           humidity_percent: crop.optimal.humidity,
           co2_ppm: crop.optimal.co2,
@@ -479,7 +472,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
         setParams(prev => ({
           ...prev,
           ph: data.optimal.ph,
-          ec: data.optimal.ec,
           temp: data.optimal.air_temperature_c,
           humidity: data.optimal.humidity_percent,
           co2: data.optimal.co2_ppm,
@@ -521,14 +513,13 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     resetRow(2);
     setParams({
       ph: activeCrop.optimal.ph,
-      ec: activeCrop.optimal.ec,
       temp: activeCrop.optimal.temp,
       humidity: activeCrop.optimal.humidity,
       co2: activeCrop.optimal.co2, // crop-level fallback; seed call below snaps to seedling optimum
     });
     seedParamsFromEngine(activeCrop); // re-seed to the seedling-stage optima (async)
     setAlerts([]);
-    outOfRangeSinceRef.current = { ph: null, ec: null, temp: null, humidity: null, co2: null };
+    outOfRangeSinceRef.current = { ph: null, temp: null, humidity: null, co2: null };
     setMetrics({ yieldPrediction: 100, stressLevel: 0, waterLevel: 100 });
   };
 

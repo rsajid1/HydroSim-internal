@@ -26,12 +26,11 @@ from app.utils.logger import logger_setup
 router = APIRouter(prefix="/api/sim", tags=["simulation"])
 log = logger_setup()
 
-# The five environment fields the UI sends. Ranked in the explanation and checked for
-# saturation. label -> (request attr, human unit). All five have STRESS_WEIGHTS / TOLERANCES
+# The four environment fields the UI actually controls. Ranked in the explanation and checked
+# for saturation. label -> (request attr, human unit). Each has STRESS_WEIGHTS / TOLERANCES
 # entries in the engine, so the explanation can weight them the same way compute_stress does.
 _DRIVERS = (
     ("pH", "ph", ""),
-    ("EC", "ec", ""),
     ("Temp", "air_temperature_c", "°C"),
     ("Humidity", "humidity_percent", "%"),
     ("CO₂", "co2_ppm", " ppm"),
@@ -134,7 +133,6 @@ async def predict(req: PredictRequest) -> PredictResponse:
 
     env = {
         "ph": req.ph,
-        "ec": req.ec,
         "air_temperature_c": req.air_temperature_c,
         "humidity_percent": req.humidity_percent,
         "co2_ppm": req.co2_ppm,

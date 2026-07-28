@@ -72,7 +72,7 @@ All verified: **48 frontend tests pass, lint 0 errors** (dashboard tests updated
      timeToHarvestDays: number;    // predictionByRow[activeRow].timeToHarvest at save
      timeOutOfRangeHours: number;  // sim-hours where stress > ~10
      durationHours: number;        // simulationTime
-     envAvg: { ph; ec; temp; humidity; co2 };  // running mean of params over ticks
+     envAvg: { ph; temp; humidity; co2 };  // running mean of params over ticks (EC removed from the sim)
    }
    interface Scenario {
      id: string; createdAt: number; label: string;   // "Scenario N", renameable
@@ -91,7 +91,7 @@ All verified: **48 frontend tests pass, lint 0 errors** (dashboard tests updated
    | Final yield | `predictionByRow[activeRow].harvestQuality` — store raw **and** displayed `×√health`, + final health |
    | Average stress | running mean of `predictionByRow[activeRow].stressFactor` over ticks |
    | Time to harvest | `predictionByRow[activeRow].timeToHarvest` (days) at save |
-   | Env averages (pH/EC/temp/humidity/CO₂) | running mean of `params` over ticks |
+   | Env averages (pH/temp/humidity/CO₂) | running mean of `params` over ticks (EC removed from the sim) |
    | Time out of range | **new** — sim-hours where `stress_factor` > threshold (per-param version later) |
    | Final health / duration | `healthByRow[activeRow]`, `simulationTime` |
 
@@ -100,7 +100,7 @@ All verified: **48 frontend tests pass, lint 0 errors** (dashboard tests updated
    SSR-safe guards). Phase 2 swaps in a `/api/scenarios` fetch impl — same interface, no UI change.
 
    **Provider accumulation** (`SimulationProvider.tsx`): a `runAccumRef` of
-   `{ ticks, sumPh, sumEc, sumTemp, sumHumidity, sumCo2, sumStress, outOfRangeTicks }`, incremented once
+   `{ ticks, sumPh, sumTemp, sumHumidity, sumCo2, sumStress, outOfRangeTicks }`, incremented once
    per tick in the existing loop (where `calculatePhysics` runs), reset in `handleReset`. Context gains
    `scenarios` (loaded from the store on mount, hydration-safe), `saveScenario()`, `deleteScenario(id)`,
    `renameScenario(id, label)`.
@@ -128,13 +128,13 @@ All verified: **48 frontend tests pass, lint 0 errors** (dashboard tests updated
    ← Back  Scenario 2 · Lettuce·DWC                Scenario 1   Scenario 2
    OUTCOME              ENV  avg  set   Crop        Lettuce      Lettuce
    Yield(disp) 74%      pH   5.6  5.5   System      NFT          DWC *
-   Health      86%      EC   1.4  1.3   ─ Outcome ───────────────────────
-   Avg stress  21       Temp 22   21    Final yield 82% ▲        74%
-   Out of range 18 h    Hum  63   60    Avg stress  12  ▲        21
-   To harvest  31 d     CO₂  780  800   Out of range 6 h ▲       18 h
+   Health      86%      Temp 22   21   ─ Outcome ───────────────────────
+   Avg stress  21       Hum  63   60    Final yield 82% ▲        74%
+   Out of range 18 h    CO₂  780  800   Avg stress  12  ▲        21
+   To harvest  31 d                     Out of range 6 h ▲       18 h
    Duration    96 h                     ─ Environment (avg) ─────────────
                                         pH          6.0          5.6 *
-                                        EC          1.2          1.4 *
+                                        Temp        20 °C        22 °C *
                                         * differs from baseline  ▲ best
    ```
 
