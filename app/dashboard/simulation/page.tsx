@@ -10,14 +10,13 @@ export default function SimulationChartPage() {
   const {
     activeRow, setActiveRow, rows, plants,
     growthStageByRow, healthByRow, plantDeadByRow, historyByRow, predictionByRow,
-    metrics, simulationTime, getGrowthLabel, getGrowthStageImage, rowCrop,
+    metrics, simulationTime, getGrowthLabel, rowCrop,
   } = useSimulation();
 
   const isPlanted = plants[activeRow * 3] !== 'empty';
   const crop = rowCrop(activeRow);
   const rowPrediction = predictionByRow[activeRow];
   const rowHealth = healthByRow[activeRow];
-  const stageImage = getGrowthStageImage(growthStageByRow[activeRow], crop);
 
   // Same discount/fallback logic as the dashboard's AI Yield Prediction card, for
   // whichever row is currently selected here.
@@ -26,7 +25,7 @@ export default function SimulationChartPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans p-6">
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <Link
             href="/dashboard"
@@ -66,14 +65,10 @@ export default function SimulationChartPage() {
             <>
               <div className="flex items-center justify-between text-xs text-slate-400 uppercase mb-4 flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  {stageImage ? (
-                    <img src={stageImage} alt={getGrowthLabel(growthStageByRow[activeRow], crop)} className="w-8 h-8 object-contain" />
-                  ) : (
-                    <Sprout size={14} className="text-green-400" />
-                  )}
+                  <Sprout size={14} className="text-green-400" />
                   <span>{rows[activeRow].name}{crop ? ` — ${crop.name}` : ''}</span>
                   <span className="text-white font-semibold">
-                    {getGrowthLabel(growthStageByRow[activeRow], crop)} ({Math.floor(growthStageByRow[activeRow])}%)
+                    {getGrowthLabel(growthStageByRow[activeRow])} ({Math.floor(growthStageByRow[activeRow])}%)
                   </span>
                   <span className={`font-semibold ${plantDeadByRow[activeRow] ? 'text-red-500' : healthByRow[activeRow] >= 0.7 ? 'text-green-400' : healthByRow[activeRow] >= 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
                     · {plantDeadByRow[activeRow] ? 'DEAD' : `Health ${Math.round(healthByRow[activeRow] * 100)}%`}
@@ -84,33 +79,11 @@ export default function SimulationChartPage() {
                 </div>
               </div>
 
-              <div className="flex flex-col lg:flex-row gap-6">
-                <div className="flex-1 min-w-0">
-                  <RowGrowthChart
-                    data={historyByRow[activeRow]}
-                    rowName={rows[activeRow].name}
-                    heightClassName="h-[60vh] min-h-[360px]"
-                  />
-                </div>
-
-                {stageImage && (
-                  <div className="lg:w-72 shrink-0 bg-slate-950 border border-slate-800 rounded-lg p-4 flex flex-col items-center justify-center gap-3">
-                    <img
-                      src={stageImage}
-                      alt={getGrowthLabel(growthStageByRow[activeRow], crop)}
-                      className="w-full max-w-[220px] aspect-square object-contain"
-                    />
-                    <div className="text-center">
-                      <div className="text-white font-semibold text-base">
-                        {getGrowthLabel(growthStageByRow[activeRow], crop)}
-                      </div>
-                      <div className="text-slate-500 text-xs">
-                        {Math.floor(growthStageByRow[activeRow])}% grown
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <RowGrowthChart
+                data={historyByRow[activeRow]}
+                rowName={rows[activeRow].name}
+                heightClassName="h-[60vh] min-h-[360px]"
+              />
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-6 text-sm">
                 <div>

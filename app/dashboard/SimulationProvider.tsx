@@ -12,19 +12,10 @@ export interface OptimalConditions {
   humidity: number;
 }
 
-export interface GrowthStageThreshold {
-  max: number; // exclusive upper bound on the 0-100 growth scale
-  label: string;
-  image?: string; // path under public/, e.g. "/lettuce_growth_images/Seed.png"
-}
-
 export interface Crop {
   id: string;
   name: string;
   optimal: OptimalConditions;
-  // Ordered, crop-specific growth-stage labels for the 0-100 growth scale. When
-  // omitted, getGrowthLabel() falls back to the generic four-stage thresholds.
-  stageThresholds?: GrowthStageThreshold[];
 }
 
 export interface System {
@@ -81,21 +72,7 @@ export const SYSTEMS: System[] = [
 ];
 
 export const CROPS: Crop[] = [
-  {
-    id: 'lettuce',
-    name: 'Lettuce',
-    optimal: { ph: 6.0, ec: 1.2, temp: 20, humidity: 60 },
-    // Head-lettuce growth stages (leaf crop — it doesn't flower/fruit before
-    // harvest; bolting to flower is a failure mode, not a milestone).
-    stageThresholds: [
-      { max: 5, label: 'Seed', image: '/lettuce_growth_images/Seed.png' },
-      { max: 15, label: 'Cotyledon', image: '/lettuce_growth_images/Cotyledon.png' },
-      { max: 30, label: 'Seedling', image: '/lettuce_growth_images/Seedling.png' },
-      { max: 65, label: 'Rosette', image: '/lettuce_growth_images/Rosette.png' },
-      { max: 85, label: 'Cupping', image: '/lettuce_growth_images/Cupping.png' },
-      { max: Infinity, label: 'Heading', image: '/lettuce_growth_images/Heading.png' },
-    ],
-  },
+  { id: 'lettuce', name: 'Lettuce', optimal: { ph: 6.0, ec: 1.2, temp: 20, humidity: 60 } },
   { id: 'tomatoes', name: 'Tomatoes', optimal: { ph: 6.0, ec: 2.5, temp: 26, humidity: 70 } },
 ];
 
@@ -159,8 +136,7 @@ interface SimulationContextValue {
 
   rowCrop: (row: number) => Crop | null;
   rowOccupancy: (row: number) => number;
-  getGrowthLabel: (stage: number, crop?: Crop | null) => string;
-  getGrowthStageImage: (stage: number, crop?: Crop | null) => string | null;
+  getGrowthLabel: (stage: number) => string;
   resetRow: (row: number) => void;
   handleReset: () => void;
   /** Plants `crop` into `row` (all 3 slots). Returns whether this replaced a
@@ -264,16 +240,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     if (slot === 'empty') return null;
     return CROPS.find(c => c.id === PLANT_TO_CROP_ID[slot]) ?? null;
   };
-
-  // activeCrop (used for optimal-value markers on the sliders/gauges and by
-  // calculatePhysics) always tracks whatever is actually planted in the active row,
-  // rather than a manually-selected crop that could drift out of sync with the
-  // planter. Falls back to the default crop when the active row is empty. This
-  // intentionally does NOT reset params — switching rows should never silently
-  // snap the environment sliders back to a crop's ideal values.
-  useEffect(() => {
-    setActiveCrop(rowCrop(activeRow) ?? CROPS[0]);
-  }, [activeRow, plants]);
 
   // Tick inputs held in refs rather than dependencies. `predictionByRow` refreshes roughly
   // once per second per occupied row, so adding it to the interval's dependency array would
@@ -466,24 +432,11 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     setMetrics({ yieldPrediction: 100, stressLevel: 0, waterLevel: 100 });
   };
 
-  const getGrowthLabel = (stage: number, crop?: Crop | null): string => {
-    if (crop?.stageThresholds) {
-      const match = crop.stageThresholds.find(t => stage < t.max);
-      return (match ?? crop.stageThresholds[crop.stageThresholds.length - 1]).label;
-    }
-    // Generic fallback for crops without crop-specific stages defined yet.
+  const getGrowthLabel = (stage: number): string => {
     if (stage < 10) return "Seedling";
     if (stage < 40) return "Vegetative";
     if (stage < 80) return "Flowering/Fruiting";
     return "Harvest Ready";
-  };
-
-  // Returns the current stage's reference image, if the crop defines one. Crops
-  // without stageThresholds (or a stage without an image) simply have nothing to show.
-  const getGrowthStageImage = (stage: number, crop?: Crop | null): string | null => {
-    if (!crop?.stageThresholds) return null;
-    const match = crop.stageThresholds.find(t => stage < t.max);
-    return (match ?? crop.stageThresholds[crop.stageThresholds.length - 1]).image ?? null;
   };
 
   const assignCrop = (crop: 'lettuce' | 'tomato', row: number): { changed: boolean } => {
@@ -516,7 +469,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     activeRow, setActiveRow,
     plants,
     rows: ROWS,
-    rowCrop, rowOccupancy, getGrowthLabel, getGrowthStageImage,
+    rowCrop, rowOccupancy, getGrowthLabel,
     resetRow, handleReset, assignCrop,
   };
 
