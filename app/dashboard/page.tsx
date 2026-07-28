@@ -282,7 +282,7 @@ export default function DashboardPage() {
           <NavItem icon={<LayoutDashboard />} label="Dashboard" active={activeNav === 'dashboard'} onClick={() => setActiveNav('dashboard')} collapsed={sidebarCollapsed} />
           <NavItem icon={<Activity />} label="Simulation" active={activeNav === 'simulation'} onClick={() => setActiveNav('simulation')} collapsed={sidebarCollapsed} />
           <NavItem icon={<Database />} label="Database" active={activeNav === 'database'} onClick={() => setActiveNav('database')} collapsed={sidebarCollapsed} />
-          <NavItem icon={<BookOpen />} label="Learning Modules" active={activeNav === 'learning'} onClick={() => setActiveNav('learning')} collapsed={sidebarCollapsed} />
+          <NavItem icon={<BookOpen />} label="Learning Modules" active={false} onClick={() => router.push('/dashboard/learning')} collapsed={sidebarCollapsed} />
           <div className="my-4 border-t border-slate-800"></div>
           <NavItem icon={<Settings />} label="Configuration" active={activeNav === 'config'} onClick={() => setActiveNav('config')} collapsed={sidebarCollapsed} />
         </nav>
@@ -480,13 +480,6 @@ export default function DashboardPage() {
                   value={params.ph}
                   min={4.0} max={8.0} step={0.1}
                   onChange={(v) => setParams({...params, ph: v})}
-               />
-               <ControlSlider
-                  label="EC (mS/cm)"
-                  icon={<Activity size={14} />}
-                  value={params.ec}
-                  min={0.5} max={4.0} step={0.1}
-                  onChange={(v) => setParams({...params, ec: v})}
                />
                <ControlSlider
                   label="Temperature (°C)"
