@@ -1,5 +1,22 @@
 # Changelog
 > Please note, PR links are not available for changes below as they are on private repository or not committed. Changes implemented after May 12, 2026 will include PR links. 
+## 2026-07-26
+
+Visual polish pass on the dashboard (`feature_cleanups`) — control/slider cleanups and a reworked middle visualization column. No engine changes; 48 frontend tests pass and lint is clean.
+
+- **UI polish** — stripped the sliders' redundant "Target" label and read-only number box (the optimal marker already lives on the telemetry gauges, so each slider now shows just its current value), fixed the source badge overlapping the Harvest Quality title, rebuilt the cramped growth-stage header, and de-monospaced prose. Design system unchanged (spacing / typography / alignment only).
+- **Visualization column refactor** — replaced the two-pane split with a unified horizontal status chip (row · stage · health · clock) above a centred 3×3 grow bed. The chip and bed are now isolated, elevated elements on the page background (no wrapping panel), with the planter sized down so it doesn't dominate the column. The three per-row View Chart buttons became one "View Chart — {row}" for the active row, and the active row is shown by recolouring its pots' outer ring (blue) rather than a background box.
+- **Environment Controls blurb → info tooltip** — the "settings are global…" paragraph moved from the card body into a small info icon beside the header, shown on hover/focus (CSS tooltip, no popup), decluttering the controls panel.
+- **System Log — all-controls deviation warnings with grace** — the log previously scored only pH/temp against crop-level targets (a bug: EC, humidity and CO₂ were ignored). It now checks all five controls against the active stage's optimum, warns per off-target control, and escalates a sustained severe deviation to "critical" only after a short grace window (layered on the engine's quadratic, grace-like health decay). Completes the failure-states item's deviation-with-grace piece (`app/dashboard/SimulationProvider.tsx`).
+
+## 2026-07-25
+
+Frontend simulation-flow work on the dashboard (`feature_cleanups`) — a single-crop session with locked setup and a collapsible sidebar. No engine changes.
+
+- **Single-crop session + locked setup** — a session is now one crop and one system, chosen before the run and locked (selectors disabled) while it runs. Clicking an empty planter plants the session crop directly (the per-rack crop popup is gone), and changing the Crop Type re-plants every row and resets. Planting is blocked mid-run, fixing the mixed-crop and mid-run-restart bugs (`app/dashboard/page.tsx`, `app/dashboard/SimulationProvider.tsx`).
+- **"Harvest Quality" rename** — the AI card title "AI Yield Prediction" is now "Harvest Quality — {row}" for consistent wording. Internal field names are unchanged.
+- **Collapsible sidebar** — a toggle shrinks the left nav to icon-only (`w-16`) or full (`w-64`) at `md+`, animated and persisted to `localStorage`, giving the visualization more room on demand.
+
 ## 2026-07-19
 
 Engine and dashboard reconciled to a single source of truth, made **stage-aware**, and the environment controls fixed. Work on the `feature_cleanups` branch; ML training and dataset integration were dropped — the AGC dataset + `data_processing/` pipeline now stand only as a research/thesis attachment (see `docs/TODO.md`).

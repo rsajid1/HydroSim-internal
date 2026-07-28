@@ -1,57 +1,108 @@
-# HydroSim — TODO: engine & system
+# HydroSim — TODO: frontend UX & simulation flow
 
-The deterministic **grey-box physics engine** (`backend/app/sim/engine.py`) is the **permanent,
-sole scorer** for both crops. There is **no ML model** and **no dataset integration** on the
-roadmap: the team dropped model training/serving, and the AGC tomato dataset + `data_processing/`
-pipeline now stand only as a **research / thesis attachment** — not wired into the running system.
+The engine and system work is done and merged (see `docs/CHANGELOG.md`). The current focus is the
+**frontend simulation flow and UX**: locking the pre-run setup, making a session single-crop, polishing
+and unifying the UI, handling failure states, and letting users save and compare multiple runs.
 
-Related docs: [`docs/engine.md`](engine.md) · [`docs/local_sim.md`](local_sim.md) ·
-[`docs/simulation.md`](simulation.md)
+Pending items are ordered best-first (foundational / low-effort first) and split into **Features** and
+**Bugs**; bugs that are the flip side of a feature are cross-linked to avoid double work. The
+deterministic grey-box engine (`backend/app/sim/engine.py`) remains the sole scorer — the AGC dataset +
+`data_processing/` pipeline stay a research/thesis attachment, out of scope here.
 
----
-
-## ⏳ Pending
-
-_None — all tracked engine/system work is complete._ The AGC dataset + `data_processing/`
-pipeline remain a research/thesis attachment, intentionally out of scope.
+Related docs: [`docs/engine.md`](engine.md) · [`docs/simulation.md`](simulation.md) ·
+[`docs/local_sim.md`](local_sim.md)
 
 ---
 
-## ✅ Completed
+## ✅ Completed (branch: `feature_cleanups`)
 
-1. **Engine ↔ dashboard constants in sync** — reconciled tomato air-temp (26 → 25) and the CO2
-   target (crop-aware 800 / 900, was a hardcoded 800) so the engine's `CROP_PROFILES` is the
-   single source of truth. Swept every UI-scored field (pH / EC / temp / humidity / CO2 all match
-   the engine; the unexposed water/light fields have no UI target to drift).
+Brief pointers — see `docs/CHANGELOG.md` (2026-07-25 / 07-26) for the full detail.
 
-2. **Stage-aware targets (issue #5)** — `optimal_targets(crop, stage)` overlays per-stage
-   `stage_targets` (tomato 5 stages, lettuce 3; EC ramps with maturity, humidity drops at
-   flowering, temps ease toward harvest). `stage_for_progress` resolves the stage from
-   `growth_percent` (no request-contract change); `sim.py` threads it through
-   stress/growth/health/explanation and returns `growth_stage` + a stage-aware `optimal`. Dashboard
-   sliders/gauges shift their "Target" as the plant grows. `stage=None`/unknown stage keeps
-   crop-level, so the dataset generator and calibration suite are unaffected and the seeded CSV
-   stays byte-identical. Tests updated (118 backend pass, lint 0 errors).
+1. **Harvest Quality rename** — AI card title "AI Yield Prediction" → "Harvest Quality — {row}".
+2. **Single-crop session + locked setup** — one crop/system per session, selectors locked while running,
+   single-crop planter (`replantToCrop`), planting blocked mid-run. Resolves bugs **B1** and **B2**.
+3. **Collapsible sidebar** — persisted icon-only ↔ full toggle on the left nav.
+4. **UI / control polish** — removed the sliders' redundant "Target" (the marker lives on telemetry) and
+   number box, fixed the source-badge/title overlap, typography/spacing cleanups.
+5. **Visualization column refactor** — isolated, elevated status chip above a centred, size-capped grow
+   bed; one "View Chart — {row}" for the active row; active row shown via blue pot rings.
+6. **Environment Controls note → info-icon hover tooltip** — decluttered the controls panel.
+7. **Simulation failure states** — death latch (irreversible **DEAD** + colour-coded health) was already
+   in place; added **deviation-with-grace**: the System Log now scores all five controls against the
+   active stage's optimum (fixing the bug where it only reacted to pH/temp), warns per off-target control,
+   and escalates a sustained severe deviation to *critical* only after a grace window. *Backend-failure
+   UX* and *dying-plant visuals* were dropped from scope (redundant with the health chip + growth chart;
+   plant-health visuals belong to the optional 3D view).
 
-3. **System — engine is the sole live scorer (validated)** — confirmed nothing in `app/` /
-   `components/` / `lib/` fetches `GET /api/dataset` at runtime; the dashboard runs entirely off
-   `POST /api/sim/predict`, and the backend consults the synthetic CSV **only** for
-   `cycle_length_days` (a reference input, not replay).
+All verified: **48 frontend tests pass, lint 0 errors** (dashboard tests updated to the single-crop flow).
 
-5. **System cleanup — dead code + docs** — removed the now-dead `app/api/dataset/route.ts`
-   (+ `route.test.ts`) and its orphaned `lib/dataset.ts` helper, and dropped the vestigial
-   `flowRate` sim param. Refreshed the `backend/app/sim/dataset.py` docstring (crop-metadata only
-   now), rewrote the stale `docs/local_sim.md` banner, and added a stage-aware note to
-   `docs/simulation.md`. Backend still reads the CSV only for `cycle_length_days`.
+---
 
-4. **Environment controls / telemetry + healthy start** — the Environment Controls had no EC
-   slider while Telemetry had no CO2 gauge (exact opposites); with stage-aware optima, the
-   unadjustable EC made the seedling EC target a permanent, unfixable stress driver. Added an **EC
-   control slider** and a **CO2 telemetry gauge** (controls ↔ telemetry now mirror the 5
-   engine-scored fields), relabeled the "Water Temp" gauge to **"Air Temp"** (it shows air temp),
-   and **seeded the sliders from the engine's seedling-stage optima** on load / crop-change / Reset
-   so a fresh crop opens unstressed — previously it read ~25% stress / ~71% harvest at rest from
-   off-target 22 °C / 400 ppm defaults, and Reset re-hardcoded CO2 to 400.
+## ⏳ Pending — Features
+
+1. **Compare Scenarios — save & compare multiple runs** (GitHub issue #10)
+   Let users save completed runs and compare 2–3 side by side (final yield, average stress, time to
+   harvest, time out of range, env averages) so instructors/learners see how configurations performed.
+
+   **Decided approach — Phase 1 on `localStorage`, behind a swappable store interface** (Phase 2 can drop
+   in a backend with no UI rewrite). A "scenario" = **one saved run** at run level (env & stress are
+   global; the active row supplies the plant outcome). Smaller decisions locked in: MVP "time out of
+   range" = sim-hours where overall `stress_factor` exceeded a threshold (~10%); Save is the existing
+   header **Save Session** button (auto-capture on harvest optional).
+
+   **Metrics & sources** (all available today unless noted):
+   | Metric | Source |
+   |---|---|
+   | Final yield | `prediction.harvestQuality` — store raw **and** displayed `×√health`, plus final health |
+   | Average stress | running mean of `prediction.stressFactor` over ticks |
+   | Time to harvest | `prediction.timeToHarvest` (days) at completion |
+   | Env averages (pH/EC/temp/humidity/CO₂) | running mean of `params` over ticks |
+   | Time out of range | **new** — sim-hours where `stress_factor` > threshold (per-param version later) |
+   | Final health / duration | `healthByRow`, `simulationTime` |
+
+   **Build order:**
+   1. `lib/scenarioMetrics.ts` — pure aggregation (sample type + `aggregate()` → averages/totals/out-of-
+      range) **+ `scenarioMetrics.test.ts`** (Vitest — a runner already exists; satisfies the unit-test
+      acceptance criterion).
+   2. `lib/scenarioStore.ts` — a small `ScenarioStore` interface + a `localStorage` implementation (Phase
+      2 swaps in a fetch-based one).
+   3. `SimulationProvider` — per-tick accumulator (sums/counts, reset on `handleReset`); `saveScenario()`,
+      `scenarios`, `deleteScenario()` on the context.
+   4. Wire the header **Save Session** button → `saveScenario()` (confirmation toast).
+   5. **Compare Scenarios view** — new nav item + panel: list saved scenarios (crop, system, date, key
+      settings), select 2–3, comparison **table** with the *changed* config cells highlighted so students
+      see what differed. Table first; charts later.
+   6. Verify — Vitest + `npm run lint`; manual: two distinct runs show distinct metrics, and changing only
+      pH target highlights that difference.
+
+   **Out of scope here** (issue's older notes): scenario *templates* and the full post-simulation *report*
+   (issues 9 / 13) — this feature just makes its metrics report-ready.
+
+   **Phase 2 (later, optional):** persist server-side — a `scenarios` table (manual DDL, like `users`) +
+   `/api/scenarios` router (create/list/delete) keyed by the Cognito user, swapping the store
+   implementation only. Enables cross-device/instructor persistence and pairs with **bug B3**.
+
+---
+
+## 🐛 Pending — Bugs
+
+- **B3 — Leaving the simulator URL resets the run.** The sim persists across `/dashboard/*` routes
+  (provider lives in `app/dashboard/layout.tsx`) but resets when navigating away from `/dashboard`
+  entirely. Decide the intended behavior — persist run state (e.g. via Compare Scenarios' Phase-2 backend)
+  or warn the user before they leave.
+
+> **Resolved** (see Completed): **B1** (crop consistency) and **B2** (mid-run selection stopped the sim)
+> were fixed by the single-crop session; the "planting another row mid-run restarts the simulation" bug
+> was fixed alongside it.
+
+---
+
+## 💡 New features or refinement (optional)
+
+- **3D plant-growth visualization.** Replace/augment the 2D planter with an accurate 3D view of plant
+  growth, and show health visually (plant thriving vs. dying / simulation failure). This subsumes the
+  "visualize dying plants" idea that was dropped from the (now-complete) failure-states work as redundant
+  with the health chip + growth chart.
 
 ---
 

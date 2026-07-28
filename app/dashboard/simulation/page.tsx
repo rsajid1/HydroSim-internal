@@ -18,7 +18,7 @@ export default function SimulationChartPage() {
   const rowPrediction = predictionByRow[activeRow];
   const rowHealth = healthByRow[activeRow];
 
-  // Same discount/fallback logic as the dashboard's AI Yield Prediction card, for
+  // Same discount/fallback logic as the dashboard's Harvest Quality card, for
   // whichever row is currently selected here.
   const harvestQuality = rowPrediction ? rowPrediction.harvestQuality * Math.sqrt(rowHealth) : metrics.yieldPrediction;
   const stress = rowPrediction ? rowPrediction.stressFactor : metrics.stressLevel;
