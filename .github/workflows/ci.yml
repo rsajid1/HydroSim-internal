@@ -12,6 +12,11 @@ on:
     branches:
       - main
 
+# Read-only token. Coverage is surfaced through the job summary and build
+# artifacts, so nothing here needs to write back to the repo or the PR.
+permissions:
+  contents: read
+
 jobs:
 
   # ──────────────────────────────────────────
@@ -37,8 +42,26 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
-      - name: Run unit tests (Vitest)
-        run: npm test
+      # Runs the same suite as `npm test`, plus V8 coverage instrumentation.
+      # A failing test still fails this step (and therefore the job); coverage
+      # itself never fails the build — no thresholds are configured.
+      - name: Run unit tests with coverage (Vitest)
+        run: npm run test:coverage
+
+      # `always()` so reviewers still get whatever coverage was collected on a
+      # failing run. The step never changes the job's success/failure state.
+      - name: Publish frontend coverage to job summary
+        if: always()
+        run: node scripts/ci/coverage-summary.mjs frontend coverage/coverage-summary.json
+
+      - name: Upload frontend coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: coverage/
+          if-no-files-found: warn
+          retention-days: 14
 
   # ──────────────────────────────────────────
   # JOB 2: Backend — FastAPI + Python 3.11
@@ -81,13 +104,40 @@ jobs:
         run: uv pip install -r requirements.txt --system
 
       - name: Install test and lint tools
-        run: uv pip install pytest pytest-asyncio httpx pylint --system
+        run: uv pip install pytest pytest-asyncio pytest-cov httpx pylint --system
 
       - name: Run Pylint
         run: pylint app/ config/ --fail-under=7.0
 
-      - name: Run pytest
-        run: pytest --tb=short -q
+      # `--cov` with no argument uses [tool.coverage.run] source from pyproject.toml.
+      # term-missing prints the table in the log; json feeds the job summary;
+      # xml/html are uploaded as artifacts. No --cov-fail-under: coverage never
+      # fails the build, but a failing test still does.
+      - name: Run pytest with coverage
+        run: >-
+          pytest --tb=short -q
+          --cov
+          --cov-report=term-missing
+          --cov-report=json:coverage.json
+          --cov-report=xml:coverage.xml
+          --cov-report=html:htmlcov
+
+      - name: Publish backend coverage to job summary
+        if: always()
+        working-directory: .
+        run: node scripts/ci/coverage-summary.mjs backend backend/coverage.json
+
+      - name: Upload backend coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: |
+            backend/htmlcov/
+            backend/coverage.xml
+            backend/coverage.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Verify app loads correctly
         run: python -c "from app.index import app; print('FastAPI app loaded successfully')"

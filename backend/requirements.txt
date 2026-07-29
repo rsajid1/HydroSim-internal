@@ -21,3 +21,9 @@ structlog>=24.0.0
 
 # Linting
 pylint>=3.0.0
+
+# Testing & coverage
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=5.0.0
+httpx>=0.24.0

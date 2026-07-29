@@ -110,8 +110,9 @@ Unit/component tests run with [Vitest](https://vitest.dev/) and
 [@testing-library/react](https://testing-library.com/) in a `jsdom` environment.
 
 ```bash
-npm test          # run all tests once (vitest run)
-npm run test:watch  # re-run on file changes
+npm test              # run all tests once (vitest run)
+npm run test:watch    # re-run on file changes
+npm run test:coverage # run once with coverage (vitest run --coverage)
 ```
 
 - Config: `vitest.config.mts` (sets the `jsdom` environment and the `@/*` → repo-root alias to
@@ -126,6 +127,7 @@ API tests use [PyTest](https://docs.pytest.org/) with FastAPI's `TestClient`.
 ```bash
 cd backend
 pytest                     # discovers tests in backend/tests/
+pytest --cov --cov-report=term-missing   # same run, with a coverage table
 ```
 
 - Tests live in `backend/tests/`. `conftest.py` sets stub Cognito/DB environment variables
@@ -133,6 +135,21 @@ pytest                     # discovers tests in backend/tests/
   shared `client` fixture, so no real AWS or PostgreSQL access is required.
 - Coverage so far: health/root routes, unknown-route 404s, and request-validation (422) cases for
   the auth and users endpoints.
+
+### Test coverage
+
+Both suites report coverage with the same commands CI runs:
+
+```bash
+npm run test:coverage                              # frontend -> coverage/lcov-report/index.html
+cd backend && pytest --cov --cov-report=term-missing   # backend
+```
+
+Coverage is **reported, not gated** — no threshold is configured, so coverage cannot fail a build
+on its own. Failing tests still fail the build.
+
+📖 **See [`docs/COVERAGE.md`](docs/COVERAGE.md)** for the full guide: setup, report formats, reading
+the HTML output, where coverage appears on a PR, and troubleshooting.
 
 ### Linting
 
@@ -148,9 +165,26 @@ cd backend && pylint app/ config/ --fail-under=7.0   # backend: Pylint (gate at 
 GitHub Actions runs the full suite automatically on every pull request (from any branch) and on
 pushes to `main`. The workflow lives at `.github/workflows/ci.yml` and has two jobs:
 
-- **Frontend** — `npm ci` → `npm run lint` → `npm test`
-- **Backend** — install deps with `uv` → `pylint` → `pytest` → app import check
+- **Frontend** — `npm ci` → `npm run lint` → `npm run test:coverage`
+- **Backend** — install deps with `uv` → `pylint` → `pytest --cov` → app import check
 
 Both jobs must pass before a PR is merged.
+
+### Where to find coverage on a PR
+
+Every pull request run reports coverage in three places:
+
+1. **Job summary** — open the workflow run from the PR's **Checks** tab. The summary page shows a
+   coverage table per job (totals plus a collapsible per-file breakdown), rendered by
+   `scripts/ci/coverage-summary.mjs`.
+2. **Logs** — the `Run unit tests with coverage` and `Run pytest with coverage` steps print the
+   coverage table inline.
+3. **Artifacts** — the run page has `frontend-coverage` and `backend-coverage` downloads containing
+   the full HTML reports (plus `lcov.info` / `coverage.xml`), kept for 14 days.
+
+The summary and artifact steps run with `if: always()`, so coverage is still published when tests
+fail. They never alter the job result: only lint and test failures fail CI.
+
+Details in [`docs/COVERAGE.md`](docs/COVERAGE.md).
 
 

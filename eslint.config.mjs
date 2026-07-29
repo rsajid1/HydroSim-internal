@@ -11,6 +11,11 @@ const eslintConfig = defineConfig([
     "**/*.d.ts",
     "eslint.config.mjs",
     "package-lock.json",
+    // Node-only CI helper scripts — not part of the Next.js app bundle and not
+    // subject to the browser/React rules in core-web-vitals.
+    "scripts/**",
+    // Generated coverage reports (HTML report ships bundled JS).
+    "coverage/**",
   ]),
 ]);
 

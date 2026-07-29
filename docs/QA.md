@@ -73,3 +73,27 @@ Required before any PR targeting `main`:
 5. **PRs must include a description** explaining what was changed and how it was tested (manually or automatically).
 6. **No secrets or credentials** may appear in any committed file. PRs containing `.env` files or hardcoded keys will be rejected immediately.
 7. **The `main` branch must remain in a deployable state** at all times. If a merge breaks the build or tests, it is the merging author's responsibility to fix or revert.
+8. **Reviewers should check the coverage report** for the PR (see below). Coverage is informational — it does not block a merge — but a change that adds logic without adding tests should be questioned in review.
+
+---
+
+## D. Test Coverage
+
+Coverage is measured on both suites and published on every pull request, in the job summary, the step logs, and downloadable artifacts.
+
+**Full guide: [`COVERAGE.md`](./COVERAGE.md)** — setup, commands, report formats, and troubleshooting.
+
+| Suite | Command | Current baseline |
+|---|---|---|
+| Frontend | `npm run test:coverage` | ~55% lines |
+| Backend | `cd backend && pytest --cov --cov-report=term-missing` | ~72% statements |
+
+### Policy
+
+Coverage is **reported, not gated**. No threshold is enforced, so coverage can never fail a build on its own — only failing tests and lint errors do.
+
+This is deliberate. A threshold above current coverage blocks every PR until someone backfills tests; a threshold below it does nothing. Either way the number, not the reviewer, ends up making the call.
+
+So the judgement stays human. **When reviewing, open the coverage summary on the PR and ask whether new logic came with tests.** A drop in coverage is not a blocker, but it is a reasonable thing to raise.
+
+If the team later agrees on a floor, commented hooks are in place in `vitest.config.mts` (`thresholds`) and `backend/pyproject.toml` (`fail_under`). Set it at or just below the current baseline so it ratchets up rather than blocking work immediately.

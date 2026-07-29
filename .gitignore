@@ -234,8 +234,11 @@ __marimo__/
 !.yarn/releases
 !.yarn/versions
 
-# testing
+# testing / coverage output (Vitest V8 reports: lcov-report, lcov.info, *.json)
 /coverage
+/backend/htmlcov/
+/backend/coverage.xml
+/backend/coverage.json
 
 # next.js
 /.next/
