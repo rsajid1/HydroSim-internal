@@ -29,6 +29,7 @@ import {
   Info,
 } from 'lucide-react';
 import { useSimulation, SYSTEMS, CROPS } from './SimulationProvider';
+import ScenariosPanel from './ScenariosPanel';
 
 /**
  * HydroSim - Interactive Hydroponics & Greenhouse Simulator
@@ -216,11 +217,25 @@ export default function DashboardPage() {
     rowOccupancy,
     getGrowthLabel,
     handleReset,
+    saveScenario,
   } = sim;
 
   // Garden planter UI state that's local to this page only (the confirmation toast
   // isn't needed on the chart page).
   const [cropConfirmation, setCropConfirmation] = useState<string | null>(null);
+  const [savedToast, setSavedToast] = useState<string | null>(null);
+
+  // Save Session → capture the current run as a scenario, then jump to the Compare (Dashboard) tab.
+  const handleSaveSession = () => {
+    const saved = saveScenario();
+    if (!saved) {
+      setSavedToast('Run a simulation before saving a session.');
+    } else {
+      setSavedToast(`Saved "${saved.label}" — compare it in the Dashboard tab.`);
+      setActiveNav('dashboard');
+    }
+    setTimeout(() => setSavedToast(null), 2800);
+  };
 
   // Click-to-plant (single-crop session): selects the row, and if it's empty, plants the
   // current session crop (activeCrop) into all 3 of its slots. There's no per-row crop
@@ -319,7 +334,13 @@ export default function DashboardPage() {
             <button className="btn-secondary" title="Export CSV">
                <FileText size={18} />
             </button>
-            <button className="btn-secondary" title="Save Session">
+            <button
+              onClick={handleSaveSession}
+              disabled={simulationTime <= 0}
+              title={simulationTime <= 0 ? 'Run a simulation to save it' : 'Save Session'}
+              aria-label="Save Session"
+              className="btn-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+            >
                <Save size={18} />
             </button>
             <div className="h-8 w-px bg-slate-800 mx-2"></div>
@@ -343,6 +364,12 @@ export default function DashboardPage() {
             </button>
           </div>
         </header>
+
+        {savedToast && (
+          <div className="fixed bottom-6 right-6 z-50 bg-slate-800 border border-slate-700 text-slate-100 text-sm px-4 py-2 rounded-md shadow-lg shadow-black/40">
+            {savedToast}
+          </div>
+        )}
 
         {/* Database Panel */}
         {activeNav === 'database' && (
@@ -406,8 +433,11 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Dashboard Grid */}
-        {activeNav !== 'database' && <div className="flex-1 overflow-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Compare Scenarios — repurposed Dashboard tab (issue #10) */}
+        {activeNav === 'dashboard' && <ScenariosPanel onStartNewSession={() => setActiveNav('simulation')} />}
+
+        {/* Simulation Grid */}
+        {activeNav !== 'database' && activeNav !== 'dashboard' && <div className="flex-1 overflow-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
 
           {/* --- COLUMN 1: CONFIGURATION --- */}
           <div className="lg:col-span-3 space-y-4">

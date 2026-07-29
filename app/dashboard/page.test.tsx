@@ -591,3 +591,55 @@ describe("DashboardPage - per-row independence & growth charts", () => {
     expect(mockPush).toHaveBeenCalledWith('/dashboard/simulation');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Compare Scenarios (issue #10) — rendered by the "Dashboard" nav tab. We seed the store
+// directly (localStorage) so we can exercise the grid/compare UI without running a sim.
+// ---------------------------------------------------------------------------
+describe("DashboardPage - Compare Scenarios", () => {
+  type SeedArgs = { id: string; label: string; yield: number; stress: number; ph: number; at: number };
+  const makeScenario = (a: SeedArgs) => ({
+    id: a.id, createdAt: a.at, label: a.label,
+    cropId: "lettuce", cropName: "Lettuce", systemId: "nft", systemName: "NFT",
+    finalSettings: { ph: a.ph, temp: 20, humidity: 60, co2: 800 },
+    metrics: {
+      finalYieldRaw: a.yield, finalYieldDisplayed: a.yield, finalHealth: 100,
+      avgStress: a.stress, timeToHarvestDays: 30, timeOutOfRangeHours: 0, durationHours: 120,
+      envAvg: { ph: a.ph, temp: 20, humidity: 60, co2: 800 },
+    },
+  });
+
+  const clickBtn = async (name: RegExp) => {
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name })); });
+  };
+
+  it("lists saved scenarios and compares two side by side with distinct metrics", async () => {
+    localStorage.setItem("hydrosim.scenarios", JSON.stringify([
+      makeScenario({ id: "s1", label: "Scenario 1", yield: 82, stress: 12, ph: 6.0, at: 1 }),
+      makeScenario({ id: "s2", label: "Scenario 2", yield: 74, stress: 21, ph: 5.5, at: 2 }),
+    ]));
+    renderDashboard();
+
+    await clickBtn(/^dashboard$/i);            // switch to the repurposed Dashboard tab
+    expect(screen.getByText("Scenario 1")).toBeInTheDocument();
+    expect(screen.getByText("Scenario 2")).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("checkbox", { name: /select Scenario 1/i }));
+      fireEvent.click(screen.getByRole("checkbox", { name: /select Scenario 2/i }));
+    });
+    await clickBtn(/compare selected/i);
+
+    expect(screen.getByText("Final yield")).toBeInTheDocument();
+    expect(screen.getByText("82%")).toBeInTheDocument();  // Scenario 1 displayed yield
+    expect(screen.getByText("74%")).toBeInTheDocument();  // Scenario 2 displayed yield
+    expect(screen.getByText("5.5")).toBeInTheDocument();  // Scenario 2's differing pH average
+  });
+
+  it("shows the Start new session card and disables Compare until 2 are selected", async () => {
+    renderDashboard();
+    await clickBtn(/^dashboard$/i);
+    expect(screen.getByRole("button", { name: /start new session/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /compare selected/i })).toBeDisabled();
+  });
+});

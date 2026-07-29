@@ -2,6 +2,8 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import type { RowHistoryPoint } from './RowGrowthChart';
+import { createAccumulator, accumulate, finalize, type Scenario } from '@/lib/scenarioMetrics';
+import { scenarioStore } from '@/lib/scenarioStore';
 
 // --- TypeScript Interfaces ---
 
@@ -164,6 +166,13 @@ interface SimulationContextValue {
    *  already-occupied row to the new crop and resets the run (a different plant),
    *  keeping the invariant that every planted row holds the active crop. */
   replantToCrop: (crop: Crop) => void;
+
+  /** Compare Scenarios (issue #10). `scenarios` is the persisted list (newest first);
+   *  `saveScenario` captures the current run's summary (returns null if nothing has run yet). */
+  scenarios: Scenario[];
+  saveScenario: () => Scenario | null;
+  deleteScenario: (id: string) => void;
+  renameScenario: (id: string, label: string) => void;
 }
 
 const SimulationContext = createContext<SimulationContextValue | undefined>(undefined);
@@ -222,6 +231,15 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   // Garden planter state — a single 3x3 planter; each row is independently assignable.
   const [activeRow, setActiveRow] = useState<number>(0);
   const [plants, setPlants] = useState<('empty' | 'lettuce' | 'tomato')[]>(Array(9).fill('empty'));
+
+  // Saved scenarios (Compare Scenarios, issue #10). Loaded from the swappable store after mount so
+  // the server-rendered HTML (no localStorage) and the client agree — avoids a hydration mismatch.
+  // Per-tick metrics accumulate in runAccumRef; saveScenario() folds them into a Scenario.
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  useEffect(() => {
+    setScenarios(scenarioStore.list());
+  }, []);
+  const runAccumRef = useRef(createAccumulator());
 
   // -- Out-of-range detection for the System Log (client-side, all five controls) --
   // Runs each tick. Scores every control against the active row's stage-aware optimum and emits a
@@ -319,6 +337,13 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
 
         // Calculate Stress & Yield (reacts to whichever params source is active)
         calculatePhysics();
+
+        // Accumulate this tick into the run summary (Compare Scenarios). Env is global; stress is
+        // the active row's engine stress. saveScenario() later folds this into stored metrics.
+        accumulate(runAccumRef.current, {
+          params: paramsRef.current,
+          stressFactor: rowSimRef.current[activeRowRef.current]?.stressFactor ?? 0,
+        });
 
         // Advance each occupied row's plant health/growth independently — a row is
         // single-crop across its 3 slots, so checking slot 0 tells us if it's planted.
@@ -520,6 +545,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     seedParamsFromEngine(activeCrop); // re-seed to the seedling-stage optima (async)
     setAlerts([]);
     outOfRangeSinceRef.current = { ph: null, temp: null, humidity: null, co2: null };
+    runAccumRef.current = createAccumulator();
     setMetrics({ yieldPrediction: 100, stressLevel: 0, waterLevel: 100 });
   };
 
@@ -558,6 +584,45 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const rowOccupancy = (row: number) =>
     plants.slice(row * 3, row * 3 + 3).filter(s => s !== 'empty').length;
 
+  // -- Compare Scenarios (issue #10) --
+  // Fold the run's accumulated per-tick metrics + the active row's final state into a saved
+  // Scenario. Returns null (and saves nothing) if no run has advanced yet.
+  const saveScenario = (): Scenario | null => {
+    if (simulationTime <= 0) return null;
+    const pred = predictionByRow[activeRow];
+    const metricsSummary = finalize(runAccumRef.current, {
+      harvestQuality: pred?.harvestQuality ?? metrics.yieldPrediction,
+      health: healthByRow[activeRow] ?? 1,
+      timeToHarvestDays: pred?.timeToHarvest ?? 0,
+      durationHours: simulationTime,
+      simHoursPerTick: SIM_HOURS_PER_TICK,
+    });
+    const scenario: Scenario = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+      createdAt: Date.now(),
+      label: `Scenario ${scenarios.length + 1}`,
+      cropId: activeCrop.id,
+      cropName: activeCrop.name,
+      systemId: activeSystem.id,
+      systemName: activeSystem.name,
+      finalSettings: { ...params },
+      metrics: metricsSummary,
+    };
+    scenarioStore.save(scenario);
+    setScenarios(scenarioStore.list());
+    return scenario;
+  };
+
+  const deleteScenario = (id: string): void => {
+    scenarioStore.remove(id);
+    setScenarios(scenarioStore.list());
+  };
+
+  const renameScenario = (id: string, label: string): void => {
+    scenarioStore.rename(id, label);
+    setScenarios(scenarioStore.list());
+  };
+
   const value: SimulationContextValue = {
     activeSystem, setActiveSystem,
     activeCrop, setActiveCrop,
@@ -571,6 +636,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     rows: ROWS,
     rowCrop, rowOccupancy, getGrowthLabel,
     resetRow, handleReset, assignCrop, replantToCrop,
+    scenarios, saveScenario, deleteScenario, renameScenario,
   };
 
   return <SimulationContext.Provider value={value}>{children}</SimulationContext.Provider>;

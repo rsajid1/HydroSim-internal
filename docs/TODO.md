@@ -1,22 +1,22 @@
 # HydroSim — TODO: frontend UX & simulation flow
 
-The engine and system work is done and merged (see `docs/CHANGELOG.md`). The current focus is the
-**frontend simulation flow and UX**: locking the pre-run setup, making a session single-crop, polishing
-and unifying the UI, handling failure states, and letting users save and compare multiple runs.
+The engine and system work is done and merged (see `docs/CHANGELOG.md`). The **frontend simulation flow
+and UX** track is now complete: the pre-run setup locks, a session is single-crop, the UI is polished and
+unified, failure states are handled, and runs can be saved and compared. Only a bug and optional
+refinements remain.
 
-Pending items are ordered best-first (foundational / low-effort first) and split into **Features** and
-**Bugs**; bugs that are the flip side of a feature are cross-linked to avoid double work. The
-deterministic grey-box engine (`backend/app/sim/engine.py`) remains the sole scorer — the AGC dataset +
-`data_processing/` pipeline stay a research/thesis attachment, out of scope here.
+Remaining items are split into **Bugs** and **optional** refinements. The deterministic grey-box engine
+(`backend/app/sim/engine.py`) remains the sole scorer — the AGC dataset + `data_processing/` pipeline stay
+a research/thesis attachment, out of scope here.
 
 Related docs: [`docs/engine.md`](engine.md) · [`docs/simulation.md`](simulation.md) ·
 [`docs/local_sim.md`](local_sim.md)
 
 ---
 
-## ✅ Completed (branch: `feature_cleanups`)
+## ✅ Completed (branches: `feature_cleanups`, `compare-analytics`)
 
-Brief pointers — see `docs/CHANGELOG.md` (2026-07-25 / 07-26) for the full detail.
+Brief pointers — see `docs/CHANGELOG.md` (2026-07-25 / 07-26 / 07-28 / 07-29) for the full detail.
 
 1. **Harvest Quality rename** — AI card title "AI Yield Prediction" → "Harvest Quality — {row}".
 2. **Single-crop session + locked setup** — one crop/system per session, selectors locked while running,
@@ -28,17 +28,39 @@ Brief pointers — see `docs/CHANGELOG.md` (2026-07-25 / 07-26) for the full det
    bed; one "View Chart — {row}" for the active row; active row shown via blue pot rings.
 6. **Environment Controls note → info-icon hover tooltip** — decluttered the controls panel.
 7. **Simulation failure states** — death latch (irreversible **DEAD** + colour-coded health) was already
-   in place; added **deviation-with-grace**: the System Log now scores all five controls against the
+   in place; added **deviation-with-grace**: the System Log now scores every control against the
    active stage's optimum (fixing the bug where it only reacted to pH/temp), warns per off-target control,
    and escalates a sustained severe deviation to *critical* only after a grace window. *Backend-failure
    UX* and *dying-plant visuals* were dropped from scope (redundant with the health chip + growth chart;
    plant-health visuals belong to the optional 3D view).
+8. **EC removed from the live simulation** — EC had no slider (frozen to the crop ideal) yet the engine
+   still scored it against a *drifting* stage-aware target, silently dragging harvest quality down for a
+   factor the user could not control. The predict path now omits EC (engine renormalises over the four
+   controlled fields), and the EC telemetry gauge + all EC state left the frontend. Engine constants,
+   the dataset generator, and the calibration suite are untouched.
+9. **Compare Scenarios — save & compare multiple runs** (GitHub issue #10) — `lib/scenarioMetrics.ts`
+   (pure aggregation) + `lib/scenarioStore.ts` (swappable `ScenarioStore`, localStorage impl), a per-tick
+   accumulator and `saveScenario`/`deleteScenario`/`renameScenario` on the provider, the header **Save
+   Session** button wired, and `ScenariosPanel.tsx` rendered by the **Dashboard** nav tab: card grid +
+   "Start new session", single-scenario detail, and a 2–3 way comparison table highlighting cells that
+   *differ from the baseline* and the *best* outcome per metric. Charts deferred (summary-only storage);
+   Phase 2 (server-side persistence) still open — see below.
 
-All verified: **48 frontend tests pass, lint 0 errors** (dashboard tests updated to the single-crop flow).
+All verified: **66 frontend tests pass, 118 backend tests pass, lint 0 errors.**
 
 ---
 
 ## ⏳ Pending — Features
+
+None — the frontend simulation-flow track is complete. The only planned follow-up is **Compare
+Scenarios Phase 2**: persist scenarios server-side — a `scenarios` table (manual DDL, like `users`) +
+an `/api/scenarios` router (create/list/delete) keyed by the Cognito user, swapping the
+`ScenarioStore` implementation only (no UI rewrite). Enables cross-device/instructor persistence and
+pairs with **bug B3**. Optional extras deliberately left out of the MVP: a comparison **chart** overlay
+(needs a persisted per-tick series, not just summaries) and auto-capturing a scenario on harvest.
+
+<details>
+<summary>Original Compare Scenarios plan (implemented as specified — kept for reference)</summary>
 
 1. **Compare Scenarios — save & compare multiple runs** (GitHub issue #10)
    Let users save completed runs and compare 2–3 side by side (final yield, average stress, time to
@@ -165,6 +187,8 @@ All verified: **48 frontend tests pass, lint 0 errors** (dashboard tests updated
    **Phase 2 (later, optional):** persist server-side — a `scenarios` table (manual DDL, like `users`) +
    `/api/scenarios` router (create/list/delete) keyed by the Cognito user, swapping the store
    implementation only. Enables cross-device/instructor persistence and pairs with **bug B3**.
+
+</details>
 
 ---
 
