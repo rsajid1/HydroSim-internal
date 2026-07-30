@@ -94,7 +94,7 @@ def test_predict_growth_rate_tracks_stress(client):
     """The router must not re-derive the growth formula — it must match the engine's."""
     for payload in (ZERO_STRESS_LETTUCE, IDEAL_LETTUCE, POOR_LETTUCE):
         body = client.post("/api/sim/predict", json=payload).json()
-        assert body["growth_rate"] == 1 - body["stress_factor"] / 100
+        assert body["growth_rate"] == round(1 - body["stress_factor"] / 100, 4)
 
 
 def test_predict_cycle_days_is_crop_specific(client):
@@ -153,38 +153,41 @@ def test_predict_health_rate_positive_when_healthy_negative_when_stressed(client
     assert stressed["health_rate"] < 0.0
 
 
-# --- Explanation + status honesty (the two bugs seen live: EC ignored, wrecked field "stable") ---
+# --- Explanation + status honesty (EC now removed from scoring; wrecked field never "stable") ---
 
-# EC maxed out (target 1.2, tol 1.0 -> 4.0 saturates), every other field exactly on target.
+# EC at its extreme (4.0), every other field on the lettuce target. EC is no longer scored.
 EC_WRECKED_LETTUCE = {
     "crop_type": "lettuce",
     "ph": 6.0, "ec": 4.0, "air_temperature_c": 20.0,
     "humidity_percent": 60.0, "co2_ppm": 800.0,
 }
 
-# pH maxed out (target 6.0, tol 1.0 -> 8.0 saturates) and nothing else off.
-PH_WRECKED_LETTUCE = {
+# CO₂ at its floor (300) saturates while nothing else is off — stress ~16, below classify()'s 30,
+# so it exercises the router's saturation floor (a maxed field must never read "stable").
+CO2_WRECKED_LETTUCE = {
     "crop_type": "lettuce",
-    "ph": 8.0, "ec": 1.2, "air_temperature_c": 20.0,
-    "humidity_percent": 60.0, "co2_ppm": 800.0,
+    "ph": 6.0, "air_temperature_c": 20.0,
+    "humidity_percent": 60.0, "co2_ppm": 300.0,
 }
 
 
-def test_explanation_names_ec_when_ec_is_wrecked(client):
-    # Regression: _DRIVERS used to omit EC, so a lethal EC read "All inputs near optimal".
+def test_ec_is_ignored_by_prediction(client):
+    # EC is no longer scored: a wrecked EC with every other field on the lettuce target must read
+    # zero stress and never appear in the explanation.
     body = client.post("/api/sim/predict", json=EC_WRECKED_LETTUCE).json()
-    assert "EC" in body["explanation"]
-    assert "near optimal" not in body["explanation"]
+    assert body["stress_factor"] == 0.0
+    assert "EC" not in body["explanation"]
+    assert "near optimal" in body["explanation"]
 
 
 def test_saturated_field_is_never_reported_stable(client):
-    # pH 8.0 alone gives stress ~27, below classify()'s 30 for "warning" — but a maxed-out
+    # CO₂ at 300 alone gives stress ~16, below classify()'s 30 for "warning" — but a maxed-out
     # field must not read "stable". The router floors status/risk on saturation.
-    body = client.post("/api/sim/predict", json=PH_WRECKED_LETTUCE).json()
+    body = client.post("/api/sim/predict", json=CO2_WRECKED_LETTUCE).json()
     assert body["stress_factor"] < 30           # aggregate really is under the classify threshold
     assert body["status"] != "stable"
     assert body["risk_level"] != "low"
-    assert "pH" in body["explanation"]
+    assert "CO" in body["explanation"]
 
 
 def test_explanation_ranks_by_weighted_contribution_not_raw_diff(client):

@@ -2,12 +2,13 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import type { RowHistoryPoint } from './RowGrowthChart';
+import { createAccumulator, accumulate, finalize, type Scenario } from '@/lib/scenarioMetrics';
+import { scenarioStore } from '@/lib/scenarioStore';
 
 // --- TypeScript Interfaces ---
 
 export interface OptimalConditions {
   ph: number;
-  ec: number;
   temp: number;
   humidity: number;
   co2: number;
@@ -27,7 +28,6 @@ export interface System {
 
 export interface SimulationParams {
   ph: number;
-  ec: number;
   temp: number;
   humidity: number;
   co2: number;
@@ -78,8 +78,8 @@ export const SYSTEMS: System[] = [
 // and Reset default land off the engine's optimum, so a user sitting exactly on target still
 // reads phantom stress. (tomato air_temperature_c is 25.0 in the engine, not 26.)
 export const CROPS: Crop[] = [
-  { id: 'lettuce', name: 'Lettuce', optimal: { ph: 6.0, ec: 1.2, temp: 20, humidity: 60, co2: 800 } },
-  { id: 'tomatoes', name: 'Tomatoes', optimal: { ph: 6.0, ec: 2.5, temp: 25, humidity: 70, co2: 900 } },
+  { id: 'lettuce', name: 'Lettuce', optimal: { ph: 6.0, temp: 20, humidity: 60, co2: 800 } },
+  { id: 'tomatoes', name: 'Tomatoes', optimal: { ph: 6.0, temp: 25, humidity: 70, co2: 900 } },
 ];
 
 // Backend base URL (reused from the DB panel's fetch pattern).
@@ -106,7 +106,7 @@ const PLANT_TO_CROP_ID: Record<'lettuce' | 'tomato', string> = { lettuce: 'lettu
 // common case while bounding memory if a run is left going past harvest.
 const HISTORY_CAP = 500;
 
-// System Log out-of-range detection (all five controls, not just pH/temp). A control is "off"
+// System Log out-of-range detection (the four user controls: pH, temp, humidity, CO₂). A control is "off"
 // once it deviates past 15% of its slider range from the active stage's optimum — the same yellow
 // band the telemetry gauge uses — and "critical" past 30% (the gauge's red band). Deviation-with-
 // grace: a far-off control shows as a *warning* first and only escalates to *critical* if it stays
@@ -114,7 +114,6 @@ const HISTORY_CAP = 500;
 const OUT_OF_RANGE_GRACE_HOURS = 12; // ~2 ticks at 6 sim-h/tick
 const FIELD_RANGES: Record<keyof SimulationParams, { min: number; max: number; label: string }> = {
   ph: { min: 4.0, max: 8.0, label: 'pH' },
-  ec: { min: 0.5, max: 4.0, label: 'EC' },
   temp: { min: 10, max: 40, label: 'Temperature' },
   humidity: { min: 0, max: 100, label: 'Humidity' },
   co2: { min: 300, max: 1200, label: 'CO₂' },
@@ -167,6 +166,13 @@ interface SimulationContextValue {
    *  already-occupied row to the new crop and resets the run (a different plant),
    *  keeping the invariant that every planted row holds the active crop. */
   replantToCrop: (crop: Crop) => void;
+
+  /** Compare Scenarios (issue #10). `scenarios` is the persisted list (newest first);
+   *  `saveScenario` captures the current run's summary (returns null if nothing has run yet). */
+  scenarios: Scenario[];
+  saveScenario: () => Scenario | null;
+  deleteScenario: (id: string) => void;
+  renameScenario: (id: string, label: string) => void;
 }
 
 const SimulationContext = createContext<SimulationContextValue | undefined>(undefined);
@@ -201,7 +207,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   // off-target 22 °C / 400 ppm defaults.
   const [params, setParams] = useState<SimulationParams>({
     ph: CROPS[0].optimal.ph,
-    ec: CROPS[0].optimal.ec,
     temp: CROPS[0].optimal.temp,
     humidity: CROPS[0].optimal.humidity,
     co2: CROPS[0].optimal.co2,
@@ -226,6 +231,15 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   // Garden planter state — a single 3x3 planter; each row is independently assignable.
   const [activeRow, setActiveRow] = useState<number>(0);
   const [plants, setPlants] = useState<('empty' | 'lettuce' | 'tomato')[]>(Array(9).fill('empty'));
+
+  // Saved scenarios (Compare Scenarios, issue #10). Loaded from the swappable store after mount so
+  // the server-rendered HTML (no localStorage) and the client agree — avoids a hydration mismatch.
+  // Per-tick metrics accumulate in runAccumRef; saveScenario() folds them into a Scenario.
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  useEffect(() => {
+    setScenarios(scenarioStore.list());
+  }, []);
+  const runAccumRef = useRef(createAccumulator());
 
   // -- Out-of-range detection for the System Log (client-side, all five controls) --
   // Runs each tick. Scores every control against the active row's stage-aware optimum and emits a
@@ -298,7 +312,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const activeRowRef = useRef(activeRow);
   useEffect(() => { activeRowRef.current = activeRow; }, [activeRow]);
   // Per-control grace timer: the sim-hour each control first went out of range (null = in range).
-  const outOfRangeSinceRef = useRef<Record<keyof SimulationParams, number | null>>({ ph: null, ec: null, temp: null, humidity: null, co2: null });
+  const outOfRangeSinceRef = useRef<Record<keyof SimulationParams, number | null>>({ ph: null, temp: null, humidity: null, co2: null });
 
   // Current per-row growth/health + death latch, mirrored to refs so the tick can read
   // them without being deps.
@@ -323,6 +337,13 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
 
         // Calculate Stress & Yield (reacts to whichever params source is active)
         calculatePhysics();
+
+        // Accumulate this tick into the run summary (Compare Scenarios). Env is global; stress is
+        // the active row's engine stress. saveScenario() later folds this into stored metrics.
+        accumulate(runAccumRef.current, {
+          params: paramsRef.current,
+          stressFactor: rowSimRef.current[activeRowRef.current]?.stressFactor ?? 0,
+        });
 
         // Advance each occupied row's plant health/growth independently — a row is
         // single-crop across its 3 slots, so checking slot 0 tells us if it's planted.
@@ -387,7 +408,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
           system_type: activeSystem.id, // nft (baseline) | dwc (buffered)
           growth_percent: growthStageByRow[row],
           ph: params.ph,
-          ec: params.ec,
           air_temperature_c: params.temp,
           humidity_percent: params.humidity,
           co2_ppm: params.co2,
@@ -414,7 +434,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
           optimal: data.optimal
             ? {
                 ph: data.optimal.ph,
-                ec: data.optimal.ec,
                 temp: data.optimal.air_temperature_c,
                 humidity: data.optimal.humidity_percent,
                 co2: data.optimal.co2_ppm,
@@ -448,7 +467,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     }, PREDICT_DEBOUNCE_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plants, activeSystem.id, params.ph, params.ec, params.temp, params.humidity, params.co2, growthStageByRow]);
+  }, [plants, activeSystem.id, params.ph, params.temp, params.humidity, params.co2, growthStageByRow]);
 
   // -- Seed the environment to the crop's starting (seedling) optima --
   // On mount and whenever the crop changes, ask the engine for the seedling-stage optimal
@@ -467,7 +486,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
           system_type: activeSystem.id,
           growth_percent: 0, // seedling — the starting stage
           ph: crop.optimal.ph,
-          ec: crop.optimal.ec,
           air_temperature_c: crop.optimal.temp,
           humidity_percent: crop.optimal.humidity,
           co2_ppm: crop.optimal.co2,
@@ -479,7 +497,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
         setParams(prev => ({
           ...prev,
           ph: data.optimal.ph,
-          ec: data.optimal.ec,
           temp: data.optimal.air_temperature_c,
           humidity: data.optimal.humidity_percent,
           co2: data.optimal.co2_ppm,
@@ -521,14 +538,14 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     resetRow(2);
     setParams({
       ph: activeCrop.optimal.ph,
-      ec: activeCrop.optimal.ec,
       temp: activeCrop.optimal.temp,
       humidity: activeCrop.optimal.humidity,
       co2: activeCrop.optimal.co2, // crop-level fallback; seed call below snaps to seedling optimum
     });
     seedParamsFromEngine(activeCrop); // re-seed to the seedling-stage optima (async)
     setAlerts([]);
-    outOfRangeSinceRef.current = { ph: null, ec: null, temp: null, humidity: null, co2: null };
+    outOfRangeSinceRef.current = { ph: null, temp: null, humidity: null, co2: null };
+    runAccumRef.current = createAccumulator();
     setMetrics({ yieldPrediction: 100, stressLevel: 0, waterLevel: 100 });
   };
 
@@ -567,6 +584,45 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const rowOccupancy = (row: number) =>
     plants.slice(row * 3, row * 3 + 3).filter(s => s !== 'empty').length;
 
+  // -- Compare Scenarios (issue #10) --
+  // Fold the run's accumulated per-tick metrics + the active row's final state into a saved
+  // Scenario. Returns null (and saves nothing) if no run has advanced yet.
+  const saveScenario = (): Scenario | null => {
+    if (simulationTime <= 0) return null;
+    const pred = predictionByRow[activeRow];
+    const metricsSummary = finalize(runAccumRef.current, {
+      harvestQuality: pred?.harvestQuality ?? metrics.yieldPrediction,
+      health: healthByRow[activeRow] ?? 1,
+      timeToHarvestDays: pred?.timeToHarvest ?? 0,
+      durationHours: simulationTime,
+      simHoursPerTick: SIM_HOURS_PER_TICK,
+    });
+    const scenario: Scenario = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+      createdAt: Date.now(),
+      label: `Scenario ${scenarios.length + 1}`,
+      cropId: activeCrop.id,
+      cropName: activeCrop.name,
+      systemId: activeSystem.id,
+      systemName: activeSystem.name,
+      finalSettings: { ...params },
+      metrics: metricsSummary,
+    };
+    scenarioStore.save(scenario);
+    setScenarios(scenarioStore.list());
+    return scenario;
+  };
+
+  const deleteScenario = (id: string): void => {
+    scenarioStore.remove(id);
+    setScenarios(scenarioStore.list());
+  };
+
+  const renameScenario = (id: string, label: string): void => {
+    scenarioStore.rename(id, label);
+    setScenarios(scenarioStore.list());
+  };
+
   const value: SimulationContextValue = {
     activeSystem, setActiveSystem,
     activeCrop, setActiveCrop,
@@ -580,6 +636,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     rows: ROWS,
     rowCrop, rowOccupancy, getGrowthLabel,
     resetRow, handleReset, assignCrop, replantToCrop,
+    scenarios, saveScenario, deleteScenario, renameScenario,
   };
 
   return <SimulationContext.Provider value={value}>{children}</SimulationContext.Provider>;

@@ -1,5 +1,24 @@
 # Changelog
 > Please note, PR links are not available for changes below as they are on private repository or not committed. Changes implemented after May 12, 2026 will include PR links. 
+## 2026-07-29
+
+**Compare Scenarios** (GitHub issue #10) on `compare-analytics` — users can save completed runs and compare them side by side. 66 frontend tests + 118 backend tests pass; lint clean.
+
+- **Compare Scenarios — save & compare multiple runs** — a "scenario" is one saved run: crop, system, the environment settings at save, and a summary of the whole run (final yield raw + displayed `×√health`, final health, average stress, time to harvest, time out of range, duration, and per-field environment averages). Every value comes from the deterministic engine's `/api/sim/predict` output — there is no ML in this path.
+- **Metrics aggregation + storage** — `lib/scenarioMetrics.ts` holds the data model and a pure `createAccumulator` → `accumulate` (per tick) → `finalize` pipeline, unit-tested in isolation (`scenarioMetrics.test.ts`); `lib/scenarioStore.ts` defines a swappable `ScenarioStore` interface with an SSR-safe, corruption-tolerant `localStorage` implementation (`scenarioStore.test.ts`), so a future backend store drops in without a UI rewrite.
+- **Provider support** — `SimulationProvider` accumulates one sample per tick (the global environment + the active row's engine stress), resets the accumulator on Reset, and exposes `scenarios`, `saveScenario()`, `deleteScenario()` and `renameScenario()` on the context (`app/dashboard/SimulationProvider.tsx`).
+- **Compare Scenarios view** — the previously unused **Dashboard** nav tab now renders `ScenariosPanel.tsx` instead of duplicating the Simulation view: a card grid with a "Start new session" card, a single-scenario detail (outcome block + environment averages against the final settings), and a 2–3 way comparison **table** that flags every config cell differing from the first-selected baseline (amber — "what changed") and the best value in each outcome row (emerald — "what it did"). Charts were deliberately deferred: a scenario stores summary numbers only, not the per-tick trajectory.
+- **Save Session wired** — the header button (previously a no-op) now captures the current run, shows a confirmation toast and switches to the Dashboard tab; it stays disabled until a run has actually advanced (`app/dashboard/page.tsx`).
+
+## 2026-07-28
+
+Removed EC from the live simulation on `compare-analytics` — groundwork before the Compare Scenarios work, so saved runs record only controllable, deterministic metrics. 118 backend tests + 48 frontend tests pass; lint clean.
+
+- **EC no longer affects prediction** — EC has no slider (it was frozen to the crop ideal), yet the engine was still scoring the frozen value against a **stage-aware EC target that drifts as the plant grows** (lettuce 0.8→1.4, tomato 2.0→3.5). That silently dragged harvest quality / health down as the plant matured, for a factor the user could not control. The live predict path now **omits EC**: `sim.py` drops `ec` from the scored `env` and from `_DRIVERS`, so `compute_stress` / `health_stress` renormalise over the four UI-controlled fields (pH, temp, humidity, CO₂). Harvest quality is now fully determined by the controllable inputs (`backend/app/routers/sim.py`).
+- **Engine constants untouched** — `STRESS_WEIGHTS` / `TOLERANCES` / `LIMITS` still include EC, so the dataset generator and the calibration suite (which pass all eight fields directly) are byte-for-byte unaffected; only the live endpoint stops feeding EC. `PredictRequest.ec` is kept but ignored (back-compat).
+- **EC removed from the frontend** — dropped the EC telemetry gauge and all EC state from `SimulationProvider` (`SimulationParams`/`OptimalConditions`, seeding, the prediction request, and the System Log's out-of-range detection, now four controls) (`app/dashboard/page.tsx`, `app/dashboard/SimulationProvider.tsx`).
+- **Tests** — the "explanation names EC" regression test became "EC is ignored by prediction" (a wrecked EC now reads zero stress); the saturation-floor test switched from pH (which now scores 36 over four fields, above the warning threshold) to CO₂ (16, below it) to keep exercising the floor path.
+
 ## 2026-07-26
 
 Visual polish pass on the dashboard (`feature_cleanups`) — control/slider cleanups and a reworked middle visualization column. No engine changes; 48 frontend tests pass and lint is clean.
