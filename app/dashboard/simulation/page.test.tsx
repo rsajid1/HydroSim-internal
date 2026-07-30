@@ -123,7 +123,8 @@ describe("Cross-page live simulation", () => {
     await click(/simulate/i);
     await tick(5);
 
-    const growthAtSwap = screen.getByText(/Seedling \(\d+%\)/i).textContent;
+    const stagePct = /(?:Seed|Cotyledon|Seedling|Rosette|Cupping|Heading) \(\d+%\)/i;
+    const growthAtSwap = screen.getByText(stagePct).textContent;
 
     // Swap to the chart page — same provider tree, so the tick-loop's useEffect
     // (inside SimulationProvider) is never torn down.
@@ -134,7 +135,7 @@ describe("Cross-page live simulation", () => {
     // Row 0 is the default active row on both pages, so the chart page's own status
     // line reflects the same row and should show strictly more growth than at the
     // moment of the swap — proving ticking continued while the chart page was mounted.
-    const growthAfter = screen.getByText(/Seedling \(\d+%\)/i).textContent;
+    const growthAfter = screen.getByText(stagePct).textContent;
     expect(growthAfter).not.toEqual(growthAtSwap);
 
     const growthPercent = (text: string | null) => Number(text?.match(/\((\d+)%\)/)?.[1] ?? -1);

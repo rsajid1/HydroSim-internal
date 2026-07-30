@@ -20,6 +20,10 @@ const scenario = (id: string, createdAt: number, label = id): Scenario => ({
     timeOutOfRangeHours: 0,
     durationHours: 120,
     envAvg: { ph: 6, temp: 20, humidity: 60, co2: 800 },
+    envMin: { ph: 6, temp: 20, humidity: 60, co2: 800 },
+    envMax: { ph: 6, temp: 20, humidity: 60, co2: 800 },
+    stageHours: { Seedling: 120 },
+    warnings: [],
   },
 });
 

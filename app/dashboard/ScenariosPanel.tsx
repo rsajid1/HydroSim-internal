@@ -14,10 +14,17 @@ const MAX_COMPARE = 3;
 const fmtDate = (ms: number): string =>
   new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-export default function ScenariosPanel({ onStartNewSession }: { onStartNewSession: () => void }) {
-  const { scenarios, deleteScenario, renameScenario } = useSimulation();
+export default function ScenariosPanel({
+  onStartNewSession, initialViewId,
+}: {
+  onStartNewSession: () => void;
+  /** Opens straight into this scenario's report on mount — used by Save Session so saving a run
+   *  acts as "View Report" instead of landing on the grid first. */
+  initialViewId?: string | null;
+}) {
+  const { scenarios, deleteScenario, renameScenario, handleReset } = useSimulation();
   const [selected, setSelected] = useState<string[]>([]);
-  const [viewId, setViewId] = useState<string | null>(null);
+  const [viewId, setViewId] = useState<string | null>(initialViewId ?? null);
   const [comparing, setComparing] = useState(false);
 
   const toggle = (id: string) =>
@@ -37,6 +44,7 @@ export default function ScenariosPanel({ onStartNewSession }: { onStartNewSessio
         onBack={() => setViewId(null)}
         onRename={renameScenario}
         onDelete={id => { deleteScenario(id); setViewId(null); }}
+        onStartNewSession={() => { handleReset(); onStartNewSession(); }}
       />
     );
   }
@@ -64,7 +72,7 @@ export default function ScenariosPanel({ onStartNewSession }: { onStartNewSessio
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <button
-            onClick={onStartNewSession}
+            onClick={() => { handleReset(); onStartNewSession(); }}
             className="group flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-800/60 bg-slate-950/60 shadow-inner shadow-black/40 hover:border-blue-500/50 hover:bg-slate-950 text-slate-400 hover:text-blue-300 transition-all p-6 min-h-[168px] text-center"
           >
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600/15 text-blue-400 ring-1 ring-blue-500/30 group-hover:bg-blue-600/25 transition-colors">
@@ -140,17 +148,20 @@ function ScenarioCard({
 }
 
 function ScenarioDetail({
-  scenario, onBack, onRename, onDelete,
+  scenario, onBack, onRename, onDelete, onStartNewSession,
 }: {
   scenario: Scenario;
   onBack: () => void;
   onRename: (id: string, label: string) => void;
   onDelete: (id: string) => void;
+  onStartNewSession: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(scenario.label);
   const m = scenario.metrics;
   const f = scenario.finalSettings;
+  const stageEntries = Object.entries(m.stageHours);
+  const totalStageHours = stageEntries.reduce((sum, [, hours]) => sum + hours, 0);
 
   return (
     <div className="flex-1 overflow-auto p-4 md:p-6">
@@ -199,17 +210,68 @@ function ScenarioDetail({
 
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 ring-1 ring-inset ring-white/5 shadow-lg shadow-black/20">
             <h3 className="text-xs uppercase text-slate-400 font-bold tracking-wider mb-3">Environment</h3>
-            <div className="grid grid-cols-[1fr_auto_auto] gap-x-6 gap-y-2 text-sm items-baseline">
+            <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-4 gap-y-2 text-sm items-baseline">
               <span></span>
               <span className="text-slate-500 text-[10px] uppercase text-right">avg</span>
+              <span className="text-slate-500 text-[10px] uppercase text-right">min</span>
+              <span className="text-slate-500 text-[10px] uppercase text-right">max</span>
               <span className="text-slate-500 text-[10px] uppercase text-right">final set</span>
-              <EnvRow label="pH" avg={m.envAvg.ph} final={f.ph} />
-              <EnvRow label="Temp (°C)" avg={m.envAvg.temp} final={f.temp} />
-              <EnvRow label="Humidity (%)" avg={m.envAvg.humidity} final={f.humidity} />
-              <EnvRow label="CO₂ (ppm)" avg={m.envAvg.co2} final={f.co2} />
+              <EnvRow label="pH" avg={m.envAvg.ph} min={m.envMin.ph} max={m.envMax.ph} final={f.ph} />
+              <EnvRow label="Temp (°C)" avg={m.envAvg.temp} min={m.envMin.temp} max={m.envMax.temp} final={f.temp} />
+              <EnvRow label="Humidity (%)" avg={m.envAvg.humidity} min={m.envMin.humidity} max={m.envMax.humidity} final={f.humidity} />
+              <EnvRow label="CO₂ (ppm)" avg={m.envAvg.co2} min={m.envMin.co2} max={m.envMax.co2} final={f.co2} />
             </div>
           </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 ring-1 ring-inset ring-white/5 shadow-lg shadow-black/20">
+            <h3 className="text-xs uppercase text-slate-400 font-bold tracking-wider mb-3">Stage timeline</h3>
+            {stageEntries.length === 0 ? (
+              <p className="text-sm text-slate-500">No growth-stage data was recorded for this run.</p>
+            ) : (
+              <div className="space-y-2">
+                {stageEntries.map(([stage, hours]) => {
+                  const pct = totalStageHours > 0 ? (hours / totalStageHours) * 100 : 0;
+                  return (
+                    <div key={stage}>
+                      <div className="flex items-baseline justify-between text-sm mb-1">
+                        <span className="text-slate-300">{stage}</span>
+                        <span className="font-mono text-slate-400 text-xs">{hours} sim-h</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-slate-950 border border-slate-800 overflow-hidden">
+                        <div className="h-full bg-emerald-500/70 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 ring-1 ring-inset ring-white/5 shadow-lg shadow-black/20">
+            <h3 className="text-xs uppercase text-slate-400 font-bold tracking-wider mb-3">Major warnings</h3>
+            {m.warnings.length === 0 ? (
+              <p className="text-sm text-slate-500">No sustained deviations — this run stayed on target throughout.</p>
+            ) : (
+              <ul className="space-y-2">
+                {m.warnings.map((w, i) => (
+                  <li key={i} className="flex items-baseline justify-between gap-3 text-sm">
+                    <span className={w.type === 'critical' ? 'text-red-400' : 'text-yellow-400'}>
+                      {w.type === 'critical' ? '● ' : '● '}{w.msg}
+                    </span>
+                    <span className="font-mono text-slate-500 text-xs whitespace-nowrap">{w.hours} sim-h</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
+
+        <button
+          onClick={onStartNewSession}
+          className="mt-6 w-full sm:w-auto px-4 py-2 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 transition-colors"
+        >
+          Start new scenario
+        </button>
       </div>
     </div>
   );
@@ -227,11 +289,15 @@ function DetailRow({ label, value, sub }: { label: string; value: string; sub?: 
   );
 }
 
-function EnvRow({ label, avg, final }: { label: string; avg: number; final: number }) {
+function EnvRow({
+  label, avg, min, max, final,
+}: { label: string; avg: number; min: number; max: number; final: number }) {
   return (
     <>
       <span className="text-slate-400">{label}</span>
       <span className="font-mono text-slate-100 text-right">{avg}</span>
+      <span className="font-mono text-slate-500 text-right">{min}</span>
+      <span className="font-mono text-slate-500 text-right">{max}</span>
       <span className="font-mono text-slate-400 text-right">{final}</span>
     </>
   );

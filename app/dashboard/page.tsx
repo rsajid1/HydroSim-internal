@@ -215,7 +215,9 @@ export default function DashboardPage() {
     plants,
     rows,
     rowOccupancy,
+    rowCrop,
     getGrowthLabel,
+    getGrowthStageImage,
     handleReset,
     saveScenario,
   } = sim;
@@ -224,14 +226,18 @@ export default function DashboardPage() {
   // isn't needed on the chart page).
   const [cropConfirmation, setCropConfirmation] = useState<string | null>(null);
   const [savedToast, setSavedToast] = useState<string | null>(null);
+  // Set right before switching to the Dashboard tab so ScenariosPanel opens straight into this
+  // run's report (post-simulation report, issue #12) instead of landing on the scenario grid.
+  const [reportViewId, setReportViewId] = useState<string | null>(null);
 
-  // Save Session → capture the current run as a scenario, then jump to the Compare (Dashboard) tab.
+  // Save Session → capture the current run as a scenario and open its report immediately.
   const handleSaveSession = () => {
     const saved = saveScenario();
     if (!saved) {
       setSavedToast('Run a simulation before saving a session.');
     } else {
-      setSavedToast(`Saved "${saved.label}" — compare it in the Dashboard tab.`);
+      setSavedToast(`Saved "${saved.label}" — viewing its report.`);
+      setReportViewId(saved.id);
       setActiveNav('dashboard');
     }
     setTimeout(() => setSavedToast(null), 2800);
@@ -294,7 +300,7 @@ export default function DashboardPage() {
         </button>
 
         <nav className="flex-1 p-2 space-y-1 mt-4">
-          <NavItem icon={<LayoutDashboard />} label="Dashboard" active={activeNav === 'dashboard'} onClick={() => setActiveNav('dashboard')} collapsed={sidebarCollapsed} />
+          <NavItem icon={<LayoutDashboard />} label="Dashboard" active={activeNav === 'dashboard'} onClick={() => { setReportViewId(null); setActiveNav('dashboard'); }} collapsed={sidebarCollapsed} />
           <NavItem icon={<Activity />} label="Simulation" active={activeNav === 'simulation'} onClick={() => setActiveNav('simulation')} collapsed={sidebarCollapsed} />
           <NavItem icon={<Database />} label="Database" active={activeNav === 'database'} onClick={() => setActiveNav('database')} collapsed={sidebarCollapsed} />
           <NavItem icon={<BookOpen />} label="Learning Modules" active={false} onClick={() => router.push('/dashboard/learning')} collapsed={sidebarCollapsed} />
@@ -337,11 +343,12 @@ export default function DashboardPage() {
             <button
               onClick={handleSaveSession}
               disabled={simulationTime <= 0}
-              title={simulationTime <= 0 ? 'Run a simulation to save it' : 'Save Session'}
-              aria-label="Save Session"
-              className="btn-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+              title={simulationTime <= 0 ? 'Run a simulation to save it' : 'Save Simulation & View Report'}
+              aria-label="Save Simulation & View Report"
+              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-slate-300 border border-slate-700 hover:bg-slate-800 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
             >
-               <Save size={18} />
+               <Save size={16} />
+               <span className="hidden sm:inline">Save Simulation &amp; View Report</span>
             </button>
             <div className="h-8 w-px bg-slate-800 mx-2"></div>
             <button
@@ -434,7 +441,12 @@ export default function DashboardPage() {
         )}
 
         {/* Compare Scenarios — repurposed Dashboard tab (issue #10) */}
-        {activeNav === 'dashboard' && <ScenariosPanel onStartNewSession={() => setActiveNav('simulation')} />}
+        {activeNav === 'dashboard' && (
+          <ScenariosPanel
+            onStartNewSession={() => setActiveNav('simulation')}
+            initialViewId={reportViewId}
+          />
+        )}
 
         {/* Simulation Grid */}
         {activeNav !== 'database' && activeNav !== 'dashboard' && <div className="flex-1 overflow-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -542,11 +554,19 @@ export default function DashboardPage() {
             <div className="flex justify-center">
               <div className="inline-flex items-center gap-3 rounded-full border border-slate-700/80 bg-slate-900/90 px-5 py-2.5 text-sm shadow-lg shadow-black/40 ring-1 ring-inset ring-white/5 max-w-full overflow-x-auto">
                 <span className="flex items-center gap-1.5 text-slate-400 uppercase tracking-wide whitespace-nowrap">
-                  <Sprout size={15} className="text-green-400 shrink-0" />
+                  {getGrowthStageImage(growthStageByRow[activeRow], rowCrop(activeRow)) ? (
+                    <img
+                      src={getGrowthStageImage(growthStageByRow[activeRow], rowCrop(activeRow))!}
+                      alt={getGrowthLabel(growthStageByRow[activeRow], rowCrop(activeRow))}
+                      className="w-5 h-5 object-contain shrink-0 rounded-full"
+                    />
+                  ) : (
+                    <Sprout size={15} className="text-green-400 shrink-0" />
+                  )}
                   {rows[activeRow].name}
                 </span>
                 <span className="w-px h-4 bg-slate-600/60 shrink-0" />
-                <span className="text-white font-semibold whitespace-nowrap">{getGrowthLabel(growthStageByRow[activeRow])} ({Math.floor(growthStageByRow[activeRow])}%)</span>
+                <span className="text-white font-semibold whitespace-nowrap">{getGrowthLabel(growthStageByRow[activeRow], rowCrop(activeRow))} ({Math.floor(growthStageByRow[activeRow])}%)</span>
                 <span className="w-px h-4 bg-slate-600/60 shrink-0" />
                 <span className={`font-semibold whitespace-nowrap ${plantDeadByRow[activeRow] ? 'text-red-500' : healthByRow[activeRow] >= 0.7 ? 'text-green-400' : healthByRow[activeRow] >= 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
                   {plantDeadByRow[activeRow] ? 'DEAD' : `Health ${Math.round(healthByRow[activeRow] * 100)}%`}
