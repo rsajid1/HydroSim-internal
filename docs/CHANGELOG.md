@@ -1,5 +1,19 @@
 # Changelog
 > Please note, PR links are not available for changes below as they are on private repository or not committed. Changes implemented after May 12, 2026 will include PR links. 
+## 2026-07-30
+
+**Post-Simulation Report** (GitHub issue #12, trimmed scope) — extends Compare Scenarios' data model and detail view into a real end-of-run report. 76 frontend tests pass; lint clean.
+
+- **Stage timeline, min/max environment values, and a major-warnings list** added to the scenario data model (`lib/scenarioMetrics.ts`): `ScenarioAccumulator` now tracks per-field min/max, ticks spent in each growth stage, and a deduped count of System Log messages; `finalize()` converts these into `stageHours` (sim-hours per stage), `envMin`/`envMax`, and a `warnings` list (longest-active first, capped at the top 5). `calculatePhysics()` in `SimulationProvider.tsx` now also returns a tick's warnings with stable (non-value-embedded) messages so repeated warnings dedupe correctly across a run, separate from the live System Log's value-embedded display text.
+- **Report view** — `ScenarioDetail` (`app/dashboard/ScenariosPanel.tsx`) gains three sections: Stage timeline (bar breakdown per stage), Environment min/max alongside the existing average, and Major warnings (type-colored, with sim-hours active). No new display surface was built — the report reuses the existing full-page scenario detail view rather than a separate modal.
+- **Save Session now opens the report directly** — clicking Save Session used to land on the Compare Scenarios grid; it now navigates straight into the just-saved scenario's detail view, acting as the issue's "View Report" action without building full run-end auto-detection.
+- **"Start new scenario" fixed and added to the report** — the grid's existing "Start new session" card didn't actually reset simulation state (only switched tabs); it now calls `handleReset()` first. The same reset-then-navigate action was added as a button on the report view itself.
+- **Tests** — 5 new `scenarioMetrics.test.ts` cases cover min/max tracking, empty-run zeroing, stage-hours conversion, warning aggregation/cap, and the no-warnings case; `scenarioStore.test.ts`'s fixture updated for the extended `ScenarioMetrics` shape.
+
+### Known limitations / follow-ups (deliberately out of scope)
+- **No automatic run-end trigger** — aggregation still only finalizes on the manual Save Session click; there's no detection of harvest-complete vs. paused vs. stopped.
+- **No generated recommendations** — the report shows real numbers (stage timeline, min/max, warnings) but no heuristic insight text (e.g., "keep pH closer to 6.0 during seedling stage"). Would need a small rules-based layer scoped and reviewed separately.
+
 ## 2026-07-29
 
 **Compare Scenarios** (GitHub issue #10) on `compare-analytics` — users can save completed runs and compare them side by side. 66 frontend tests + 118 backend tests pass; lint clean.

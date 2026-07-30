@@ -6,12 +6,15 @@ import {
   OUT_OF_RANGE_STRESS_THRESHOLD,
   type ScenarioSample,
   type ScenarioFinalState,
+  type ScenarioWarning,
 } from "@/lib/scenarioMetrics";
 
 const sample = (
   stressFactor: number,
   params = { ph: 6.0, temp: 20, humidity: 60, co2: 800 },
-): ScenarioSample => ({ params, stressFactor });
+  stageLabel = "Seedling",
+  alerts: ScenarioWarning[] = [],
+): ScenarioSample => ({ params, stressFactor, stageLabel, alerts });
 
 const FINAL: ScenarioFinalState = {
   harvestQuality: 80,
@@ -25,6 +28,11 @@ describe("createAccumulator", () => {
   it("starts at all zeros", () => {
     expect(createAccumulator()).toEqual({
       ticks: 0, sumPh: 0, sumTemp: 0, sumHumidity: 0, sumCo2: 0, sumStress: 0, outOfRangeTicks: 0,
+      minPh: Infinity, maxPh: -Infinity,
+      minTemp: Infinity, maxTemp: -Infinity,
+      minHumidity: Infinity, maxHumidity: -Infinity,
+      minCo2: Infinity, maxCo2: -Infinity,
+      stageTicks: {}, warningCounts: {},
     });
   });
 });
@@ -101,5 +109,49 @@ describe("finalize", () => {
     const over = finalize(acc, { ...FINAL, harvestQuality: 100, health: 1.5 });
     expect(over.finalHealth).toBe(100);
     expect(over.finalYieldDisplayed).toBe(100);
+  });
+
+  it("tracks min/max per environment field across the run", () => {
+    const acc = createAccumulator();
+    accumulate(acc, sample(0, { ph: 6.0, temp: 18, humidity: 55, co2: 700 }));
+    accumulate(acc, sample(0, { ph: 5.2, temp: 24, humidity: 70, co2: 900 }));
+    accumulate(acc, sample(0, { ph: 6.4, temp: 20, humidity: 60, co2: 800 }));
+    const m = finalize(acc, FINAL);
+    expect(m.envMin).toEqual({ ph: 5.2, temp: 18, humidity: 55, co2: 700 });
+    expect(m.envMax).toEqual({ ph: 6.4, temp: 24, humidity: 70, co2: 900 });
+  });
+
+  it("reports zeroed min/max on an empty run rather than Infinity sentinels", () => {
+    const m = finalize(createAccumulator(), FINAL);
+    expect(m.envMin).toEqual({ ph: 0, temp: 0, humidity: 0, co2: 0 });
+    expect(m.envMax).toEqual({ ph: 0, temp: 0, humidity: 0, co2: 0 });
+  });
+
+  it("converts per-stage ticks into sim-hours for the stage timeline", () => {
+    const acc = createAccumulator();
+    accumulate(acc, sample(0, undefined, "Seedling"));
+    accumulate(acc, sample(0, undefined, "Seedling"));
+    accumulate(acc, sample(0, undefined, "Vegetative"));
+    const m = finalize(acc, FINAL); // simHoursPerTick 6
+    expect(m.stageHours).toEqual({ Seedling: 12, Vegetative: 6 });
+  });
+
+  it("aggregates warnings by message, converts to hours, and caps at the top 5 longest-active", () => {
+    const acc = createAccumulator();
+    accumulate(acc, sample(0, undefined, "Seedling", [{ type: "warning", msg: "pH off-target" }]));
+    accumulate(acc, sample(0, undefined, "Seedling", [{ type: "warning", msg: "pH off-target" }]));
+    accumulate(acc, sample(0, undefined, "Seedling", [{ type: "critical", msg: "Temperature critical" }]));
+    const m = finalize(acc, FINAL); // simHoursPerTick 6
+    expect(m.warnings).toEqual([
+      { type: "warning", msg: "pH off-target", hours: 12 },
+      { type: "critical", msg: "Temperature critical", hours: 6 },
+    ]);
+  });
+
+  it("returns no warnings when the run had none", () => {
+    const acc = createAccumulator();
+    accumulate(acc, sample(0));
+    const m = finalize(acc, FINAL);
+    expect(m.warnings).toEqual([]);
   });
 });

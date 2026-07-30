@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import type { RowHistoryPoint } from './RowGrowthChart';
-import { createAccumulator, accumulate, finalize, type Scenario } from '@/lib/scenarioMetrics';
+import { createAccumulator, accumulate, finalize, type Scenario, type ScenarioWarning } from '@/lib/scenarioMetrics';
 import { scenarioStore } from '@/lib/scenarioStore';
 
 // --- TypeScript Interfaces ---
@@ -14,10 +14,19 @@ export interface OptimalConditions {
   co2: number;
 }
 
+export interface GrowthStageThreshold {
+  max: number; // exclusive upper bound on the 0-100 growth scale
+  label: string;
+  image?: string; // path under public/, e.g. "/lettuce_growth_images/Seed.png"
+}
+
 export interface Crop {
   id: string;
   name: string;
   optimal: OptimalConditions;
+  // Ordered, crop-specific growth-stage labels (+ optional reference images) for the 0-100
+  // growth scale. When omitted, getGrowthLabel() falls back to the generic four-stage thresholds.
+  stageThresholds?: GrowthStageThreshold[];
 }
 
 export interface System {
@@ -78,7 +87,21 @@ export const SYSTEMS: System[] = [
 // and Reset default land off the engine's optimum, so a user sitting exactly on target still
 // reads phantom stress. (tomato air_temperature_c is 25.0 in the engine, not 26.)
 export const CROPS: Crop[] = [
-  { id: 'lettuce', name: 'Lettuce', optimal: { ph: 6.0, temp: 20, humidity: 60, co2: 800 } },
+  {
+    id: 'lettuce',
+    name: 'Lettuce',
+    optimal: { ph: 6.0, temp: 20, humidity: 60, co2: 800 },
+    // Head-lettuce growth stages (leaf crop — it doesn't flower/fruit before
+    // harvest; bolting to flower is a failure mode, not a milestone).
+    stageThresholds: [
+      { max: 5, label: 'Seed', image: '/lettuce_growth_images/Seed.png' },
+      { max: 15, label: 'Cotyledon', image: '/lettuce_growth_images/Cotyledon.png' },
+      { max: 30, label: 'Seedling', image: '/lettuce_growth_images/Seedling.png' },
+      { max: 65, label: 'Rosette', image: '/lettuce_growth_images/Rosette.png' },
+      { max: 85, label: 'Cupping', image: '/lettuce_growth_images/Cupping.png' },
+      { max: Infinity, label: 'Heading', image: '/lettuce_growth_images/Heading.png' },
+    ],
+  },
   { id: 'tomatoes', name: 'Tomatoes', optimal: { ph: 6.0, temp: 25, humidity: 70, co2: 900 } },
 ];
 
@@ -155,7 +178,8 @@ interface SimulationContextValue {
 
   rowCrop: (row: number) => Crop | null;
   rowOccupancy: (row: number) => number;
-  getGrowthLabel: (stage: number) => string;
+  getGrowthLabel: (stage: number, crop?: Crop | null) => string;
+  getGrowthStageImage: (stage: number, crop?: Crop | null) => string | null;
   resetRow: (row: number) => void;
   handleReset: () => void;
   /** Plants `crop` into `row` (all 3 slots). Returns whether this replaced a
@@ -244,13 +268,17 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   // -- Out-of-range detection for the System Log (client-side, all five controls) --
   // Runs each tick. Scores every control against the active row's stage-aware optimum and emits a
   // warning per off-target control, escalating to critical if it stays off past the grace window.
-  const calculatePhysics = () => {
+  // Returns this tick's System Log entries with STABLE messages (no embedded live values), for
+  // folding into the run's scenario report — a report warning is keyed by message text, so baking
+  // in a fluctuating reading would defeat deduping/counting how long each issue was active.
+  const calculatePhysics = (): ScenarioWarning[] => {
     const p = paramsRef.current;
     // Score against the active row's stage-aware optimum (what telemetry shows), falling back to
     // the crop-level optima before the first prediction.
     const stageOptimal = rowSimRef.current[activeRowRef.current]?.optimal ?? activeCrop.optimal;
     const nowHours = simulationTimeRef.current;
     const newAlerts: Alert[] = [];
+    const reportWarnings: ScenarioWarning[] = [];
     let totalStress = 0;
 
     (Object.keys(FIELD_RANGES) as (keyof SimulationParams)[]).forEach((field) => {
@@ -268,9 +296,11 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
       if (escalated) {
         totalStress += 20;
         newAlerts.push({ id: field, type: 'critical', msg: `${cfg.label} critical (${p[field]}) — damage is compounding` });
+        reportWarnings.push({ type: 'critical', msg: `${cfg.label} critical — sustained deviation` });
       } else {
         totalStress += 8;
         newAlerts.push({ id: field, type: 'warning', msg: `${cfg.label} off-target (${p[field]}, aim ${stageOptimal[field]}) — adjust soon` });
+        reportWarnings.push({ type: 'warning', msg: `${cfg.label} off-target — aim for ${stageOptimal[field]}` });
       }
     });
 
@@ -280,6 +310,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
       yieldPrediction: Math.max(0, 100 - totalStress * 1.5),
     }));
     setAlerts(newAlerts);
+    return reportWarnings;
   };
 
   // Resolves a row's planted crop (if any) to its CROPS entry.
@@ -336,13 +367,16 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
         setSimulationTime(nextTime);
 
         // Calculate Stress & Yield (reacts to whichever params source is active)
-        calculatePhysics();
+        const tickWarnings = calculatePhysics();
 
-        // Accumulate this tick into the run summary (Compare Scenarios). Env is global; stress is
-        // the active row's engine stress. saveScenario() later folds this into stored metrics.
+        // Accumulate this tick into the run summary (Compare Scenarios + Post-Simulation Report).
+        // Env is global; stress and stage are the active row's. saveScenario() later folds this
+        // into stored metrics.
         accumulate(runAccumRef.current, {
           params: paramsRef.current,
           stressFactor: rowSimRef.current[activeRowRef.current]?.stressFactor ?? 0,
+          stageLabel: getGrowthLabel(growthRowRef.current[activeRowRef.current] ?? 0, rowCrop(activeRowRef.current)),
+          alerts: tickWarnings,
         });
 
         // Advance each occupied row's plant health/growth independently — a row is
@@ -549,11 +583,24 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     setMetrics({ yieldPrediction: 100, stressLevel: 0, waterLevel: 100 });
   };
 
-  const getGrowthLabel = (stage: number): string => {
+  const getGrowthLabel = (stage: number, crop?: Crop | null): string => {
+    if (crop?.stageThresholds) {
+      const match = crop.stageThresholds.find(t => stage < t.max);
+      return (match ?? crop.stageThresholds[crop.stageThresholds.length - 1]).label;
+    }
+    // Generic fallback for crops without crop-specific stages defined yet.
     if (stage < 10) return "Seedling";
     if (stage < 40) return "Vegetative";
     if (stage < 80) return "Flowering/Fruiting";
     return "Harvest Ready";
+  };
+
+  // Returns the current stage's reference image, if the crop defines one. Crops without
+  // stageThresholds (or a stage without an image) simply have nothing to show.
+  const getGrowthStageImage = (stage: number, crop?: Crop | null): string | null => {
+    if (!crop?.stageThresholds) return null;
+    const match = crop.stageThresholds.find(t => stage < t.max);
+    return (match ?? crop.stageThresholds[crop.stageThresholds.length - 1]).image ?? null;
   };
 
   const assignCrop = (crop: 'lettuce' | 'tomato', row: number): { changed: boolean } => {
@@ -634,7 +681,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     activeRow, setActiveRow,
     plants,
     rows: ROWS,
-    rowCrop, rowOccupancy, getGrowthLabel,
+    rowCrop, rowOccupancy, getGrowthLabel, getGrowthStageImage,
     resetRow, handleReset, assignCrop, replantToCrop,
     scenarios, saveScenario, deleteScenario, renameScenario,
   };

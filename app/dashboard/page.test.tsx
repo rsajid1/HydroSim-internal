@@ -299,7 +299,8 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
     await tick(10);
 
     // perTick = (100 * 6) / (45 * 24) = 0.5555…%  →  10 ticks = 5.55%, floored to 5.
-    expect(screen.getByText(/Seedling \(5%\)/i)).toBeInTheDocument();
+    // Lettuce's stage thresholds put 5% just past Seed (<5) into Cotyledon.
+    expect(screen.getByText(/Cotyledon \(5%\)/i)).toBeInTheDocument();
   });
 
   it("grows a stressed plant more slowly than an unstressed one", async () => {
@@ -315,7 +316,7 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
 
     // Half the rate → 20 × 0.2777% = 5.55%, floored to 5. Deliberately 20 ticks, not 10:
     // at 10 ticks this lands on 2%, which the old flat 0.2%/tick code also produced.
-    expect(screen.getByText(/Seedling \(5%\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Cotyledon \(5%\)/i)).toBeInTheDocument();
   });
 
   it("does not grow a plant at growth_rate 0", async () => {
@@ -329,7 +330,7 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
     await click(/simulate/i);
     await tick(20);
 
-    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Seed \(0%\)/i)).toBeInTheDocument();
   });
 
   it("freezes growth when the backend gives no prediction", async () => {
@@ -419,9 +420,10 @@ describe("DashboardPage - growth advances at the engine's rate", () => {
     await click(/simulate/i);
     await tick(10);
 
-    // Healthy (health=1) would reach 5% in 10 ticks; with health bleeding down it is strictly less.
-    expect(screen.queryByText(/Seedling \(5%\)/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/Seedling \([0-3]%\)/i)).toBeInTheDocument();
+    // Healthy (health=1) would reach 5% (Cotyledon) in 10 ticks; with health bleeding down it
+    // stays strictly less, i.e. still within the Seed stage (<5%).
+    expect(screen.queryByText(/Cotyledon \(5%\)/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Seed \([0-3]%\)/i)).toBeInTheDocument();
   });
 });
 
@@ -509,8 +511,8 @@ describe("DashboardPage - per-row independence & growth charts", () => {
     await tick(10);                    // row 0 keeps growing; row 1 grows from 0
 
     // Row 1 is active (planting it selected it) and lags because it started 10 ticks late.
-    // Match any growth-stage label — row 0 may have crossed from Seedling into Vegetative.
-    const stagePct = /(?:Seedling|Vegetative|Flowering|Harvest) \(\d+%\)/i;
+    // Match any lettuce growth-stage label — row 0 may have crossed into a later stage.
+    const stagePct = /(?:Seed|Cotyledon|Seedling|Rosette|Cupping|Heading) \(\d+%\)/i;
     const pct = (t: string | null) => Number(t?.match(/\((\d+)%\)/)?.[1] ?? -1);
     const row1Pct = pct(screen.getByText(stagePct).textContent);
 
@@ -566,9 +568,9 @@ describe("DashboardPage - per-row independence & growth charts", () => {
     await click(/reset simulation/i);
 
     expect(screen.getByText(/0 hours/i)).toBeInTheDocument();
-    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument(); // active row
+    expect(screen.getByText(/Seed \(0%\)/i)).toBeInTheDocument(); // active row
     await click(/crop1, lettuce/i);
-    expect(screen.getByText(/Seedling \(0%\)/i)).toBeInTheDocument(); // row 0 too
+    expect(screen.getByText(/Seed \(0%\)/i)).toBeInTheDocument(); // row 0 too
   });
 
   it("shows a View Chart button once a row is planted, not before", async () => {
